@@ -1,0 +1,183 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+/// Estados operativos persistidos en `Project.estatus` (solo identificadores `SNAKE_CASE`, sin espacios).
+enum ProjectStatus {
+  INICIO_PENDIENTE
+  EN_PROCESO
+  PAUSADO
+  TERMINADO
+  CANCELADO
+}
+
+enum TaskDiscipline {
+  ARQUITECTURA
+  ESTRUCTURA
+  MEP
+  MECHANICAL
+  ELECTRICAL
+  PLUMBING
+  HVAC
+  FIRE_PROTECTION
+  LANDSCAPE
+  OTROS
+}
+
+enum TaskComplexity {
+  BAJO
+  MEDIO
+  ALTO
+}
+
+enum TaskActivity {
+  MODELADO
+  CUANTIFICACION
+  DOCUMENTACION
+}
+
+enum TaskEstatus {
+  PENDIENTE
+  EN_PROCESO
+  PAUSADA
+  COMPLETADA
+}
+
+enum TechnicalDocType {
+  BEP
+  OIR
+  EIR
+  OTRO
+}
+
+enum KnowledgeCategory {
+  NORMAS
+  ESTANDARES
+  CONCEPTOS
+  REGLAMENTOS
+}
+
+enum ResourceType {
+  PROJECT
+  CLIENT
+  TASK
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+model Client {
+  id        String    @id @default(cuid())
+  nombre    String
+  activo    Boolean   @default(true)
+  projects  Project[]
+  ownerId   String?
+  owner     User?     @relation("ClientOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  sharedWith User[]   @relation("SharedClients")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Project {
+  id          String        @id @default(cuid())
+  nombre      String
+  ubicacion   String
+  ano         Int
+  tipologia   String
+  estatus     ProjectStatus @default(INICIO_PENDIENTE)
+  clientId    String
+  client      Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  files       ProjectFile[]
+  tasks       ProjectTask[]
+  ownerId     String?
+  owner       User?         @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  sharedWith  User[]        @relation("SharedProjects")
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+model ProjectFile {
+  id                 String             @id @default(cuid())
+  projectId          String
+  project            Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  originalName       String
+  storedPath         String             @unique
+  mimeType           String
+  size               Int
+  technicalDocType   TechnicalDocType?
+  uploadedAt         DateTime           @default(now())
+  version            Int                @default(1)
+}
+
+model ProjectTask {
+  id             String          @id @default(cuid())
+  projectId      String
+  project        Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  nombre         String
+  disciplina     TaskDiscipline
+  fechaTermino   DateTime
+  complejidad    TaskComplexity
+  actividad      TaskActivity    @default(MODELADO)
+  taskEstatus    TaskEstatus     @default(PENDIENTE)
+  completado     Boolean         @default(false)
+  comentarios    String          @default("")
+  ownerId        String?
+  owner          User?           @relation("TaskOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  sharedWith     User[]          @relation("SharedTasks")
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+}
+
+model KnowledgeReference {
+  id           String            @id @default(cuid())
+  category     KnowledgeCategory
+  titulo       String
+  descripcion  String?
+  url          String?
+  fuente       String?
+  orden        Int               @default(0)
+  createdAt    DateTime          @default(now())
+}
+
+enum UserRole {
+  ADMIN
+  USER
+}
+
+model User {
+  id                  String       @id @default(cuid())
+  nombre              String
+  pin                 String
+  rol                 UserRole     @default(USER)
+  ownedClients        Client[]     @relation("ClientOwner")
+  sharedClients       Client[]     @relation("SharedClients")
+  ownedProjects       Project[]    @relation("ProjectOwner")
+  sharedProjects      Project[]    @relation("SharedProjects")
+  ownedTasks          ProjectTask[] @relation("TaskOwner")
+  sharedTasks         ProjectTask[] @relation("SharedTasks")
+  sentInvitations     Invitation[] @relation("SentInvitations")
+  receivedInvitations Invitation[] @relation("ReceivedInvitations")
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+}
+
+model Invitation {
+  id           String           @id @default(cuid())
+  senderId     String
+  sender       User             @relation("SentInvitations", fields: [senderId], references: [id], onDelete: Cascade)
+  receiverId   String
+  receiver     User             @relation("ReceivedInvitations", fields: [receiverId], references: [id], onDelete: Cascade)
+  resourceType ResourceType
+  resourceId   String
+  status       InvitationStatus @default(PENDING)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+}

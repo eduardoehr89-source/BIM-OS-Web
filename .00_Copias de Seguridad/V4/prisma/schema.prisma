@@ -1,0 +1,328 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+/// Estados operativos persistidos en `Project.estatus` (solo identificadores `SNAKE_CASE`, sin espacios).
+enum ProjectStatus {
+  INICIO_PENDIENTE
+  EN_PROCESO
+  PAUSADO
+  TERMINADO
+  CANCELADO
+}
+
+enum TaskDiscipline {
+  ARQUITECTURA
+  ESTRUCTURA
+  MEP
+  MECHANICAL
+  ELECTRICAL
+  PLUMBING
+  HVAC
+  FIRE_PROTECTION
+  LANDSCAPE
+  OTROS
+}
+
+enum TaskComplexity {
+  BAJO
+  MEDIO
+  ALTO
+}
+
+enum TaskActivity {
+  MODELADO
+  CUANTIFICACION
+  DOCUMENTACION
+}
+
+enum TaskEstatus {
+  PENDIENTE
+  EN_PROCESO
+  PAUSADA
+  COMPLETADA
+}
+
+enum TechnicalDocType {
+  BEP
+  OIR
+  EIR
+  OTRO
+}
+
+enum KnowledgeCategory {
+  NORMAS
+  ESTANDARES
+  CONCEPTOS
+  REGLAMENTOS
+}
+
+enum OrgType {
+  EMPRESA_PROPIA
+  CLIENTE
+}
+
+enum ResourceType {
+  PROJECT
+  CLIENT
+  TASK
+  USER
+  FILE
+}
+
+enum AuditAction {
+  CREAR
+  EDITAR
+  BORRAR
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+enum CanalMensajeTipo {
+  TEXTO
+  ARCHIVO
+  VOZ
+  VIDEO
+}
+
+model Canal {
+  id               String         @id @default(cuid())
+  nombre           String
+  tema             String?
+  descripcion      String?
+  proyectoId       String?
+  project          Project?       @relation(fields: [proyectoId], references: [id], onDelete: SetNull)
+  permiteTexto     Boolean        @default(true)
+  permiteVoz       Boolean        @default(true)
+  permiteArchivos  Boolean        @default(true)
+  permiteVideo     Boolean        @default(true)
+  miembros         CanalUsuario[]
+  mensajes         CanalMensaje[]
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+}
+
+model CanalUsuario {
+  id        String @id @default(cuid())
+  canalId   String
+  canal     Canal  @relation(fields: [canalId], references: [id], onDelete: Cascade)
+  usuarioId String
+  usuario   User   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@unique([canalId, usuarioId])
+}
+
+model CanalMensaje {
+  id         String           @id @default(cuid())
+  contenido  String           @default("")
+  tipo       CanalMensajeTipo @default(TEXTO)
+  adjuntoUrl String?
+  canalId    String
+  canal      Canal            @relation(fields: [canalId], references: [id], onDelete: Cascade)
+  autorId    String
+  autor      User             @relation("CanalMensajeAutor", fields: [autorId], references: [id], onDelete: Cascade)
+  createdAt  DateTime         @default(now())
+}
+
+model Client {
+  id        String    @id @default(cuid())
+  nombre    String    @unique
+  activo    Boolean   @default(true)
+  projects  Project[]
+  ownerId   String?
+  owner     User?     @relation("ClientOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  sharedWith User[]   @relation("SharedClients")
+  users     User[]    @relation("UserClient")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Project {
+  id          String        @id @default(cuid())
+  nombre      String
+  ubicacion   String
+  ano         Int
+  tipologia   String
+  estatus     ProjectStatus @default(INICIO_PENDIENTE)
+  clientId    String
+  client      Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  files       ProjectFile[]
+  tasks       ProjectTask[]
+  ownerId     String?
+  owner       User?         @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  sharedWith  User[]        @relation("SharedProjects")
+  comments    Comment[]
+  canales     Canal[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+model ProjectFile {
+  id                 String             @id @default(cuid())
+  projectId          String
+  project            Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  originalName       String
+  storedPath         String             @unique
+  mimeType           String
+  size               Int
+  technicalDocType   TechnicalDocType?
+  uploadedAt         DateTime           @default(now())
+  version            Int                @default(1)
+  chatMessages       ChatMessage[]
+}
+
+model ProjectTask {
+  id             String          @id @default(cuid())
+  projectId      String
+  project        Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  nombre         String
+  disciplina     TaskDiscipline
+  fechaTermino   DateTime
+  complejidad    TaskComplexity
+  actividad      TaskActivity    @default(MODELADO)
+  taskEstatus    TaskEstatus     @default(PENDIENTE)
+  completado     Boolean         @default(false)
+  comentarios    String          @default("")
+  ownerId        String?
+  owner          User?           @relation("TaskOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  sharedWith     User[]          @relation("SharedTasks")
+  comments       Comment[]
+  chatMessages   ChatMessage[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+}
+
+model KnowledgeReference {
+  id           String            @id @default(cuid())
+  category     KnowledgeCategory
+  titulo       String
+  descripcion  String?
+  url          String?
+  fuente       String?
+  orden        Int               @default(0)
+  createdAt    DateTime          @default(now())
+}
+
+model User {
+  id                  String         @id @default(cuid())
+  nombre              String
+  pin                 String
+  /// Permisos de sistema: ADMIN o USER (almacenado como texto).
+  tipo                String         @default("USER")
+  /// Marca al Admin Supremo: tiene acceso total sin restricciones de pestaña.
+  isSupremo           Boolean        @default(false)
+  /// Permisos de pestañas. Ej: "dashboard,proyectos,tareas,comunicaciones"
+  permisos            String         @default("dashboard")
+  /// Cargo profesional (opcional en BD).
+  rol                 String?
+  ownedClients        Client[]     @relation("ClientOwner")
+  sharedClients       Client[]     @relation("SharedClients")
+  ownedProjects       Project[]    @relation("ProjectOwner")
+  sharedProjects      Project[]    @relation("SharedProjects")
+  ownedTasks          ProjectTask[] @relation("TaskOwner")
+  sharedTasks         ProjectTask[] @relation("SharedTasks")
+  sentInvitations     Invitation[] @relation("SentInvitations")
+  receivedInvitations Invitation[] @relation("ReceivedInvitations")
+  auditLogs           AuditLog[]
+  comments            Comment[]
+
+  sentMessages           ChatMessage[] @relation("SentMessages")
+  mentionedIn            ChatMessage[] @relation("MentionedIn")
+  canalMiembros          CanalUsuario[]
+  canalMensajes          CanalMensaje[] @relation("CanalMensajeAutor")
+  clientId               String?
+  client                 Client?      @relation("UserClient", fields: [clientId], references: [id])
+  notificationSettings   NotificationSettings?
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+}
+
+model NotificationSettings {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Solo prioridad alta (auto-activado para mensajes de ADMINs)
+  soloAltaPrioridad     Boolean  @default(false)
+  /// Solo cuando te mencionan
+  soloMenciones         Boolean  @default(false)
+  /// Tipos de contenido activos
+  filtroMensajes        Boolean  @default(true)
+  filtroProyectos       Boolean  @default(true)
+  filtroTareas          Boolean  @default(true)
+  /// IDs de canales seleccionados para alertas (CSV). Vacío = todos.
+  selectedChannels      String   @default("")
+  /// IDs de clientes permitidos (CSV). Vacío = todos.
+  clientesFiltro        String   @default("")
+  /// IDs de proyectos activos para notificaciones (CSV). Vacío = todos.
+  proyectosFiltro       String   @default("")
+  /// Silenciar todos los días de la semana
+  silenceAllDays        Boolean  @default(false)
+  /// Silenciar las 24 horas (sin importar rango horario)
+  silence24h            Boolean  @default(false)
+  /// Nivel de detalle en alertas de escritorio: BREVE | INTERMEDIO | COMPLETO
+  detalleNotificacion   String   @default("BREVE")
+  /// Horario de silencio: JSON {dias:[0-6], horaInicio:"HH:MM", horaFin:"HH:MM"}
+  calendarioSilencio    String   @default("{}")
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model Invitation {
+  id           String           @id @default(cuid())
+  senderId     String
+  sender       User             @relation("SentInvitations", fields: [senderId], references: [id], onDelete: Cascade)
+  receiverId   String
+  receiver     User             @relation("ReceivedInvitations", fields: [receiverId], references: [id], onDelete: Cascade)
+  resourceType ResourceType
+  resourceId   String
+  status       InvitationStatus @default(PENDING)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+}
+
+model AuditLog {
+  id        String       @id @default(cuid())
+  usuarioId String
+  usuario   User         @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  accion    AuditAction
+  recurso   ResourceType
+  detalles  String?
+  timestamp DateTime     @default(now())
+}
+
+model Comment {
+  id        String       @id @default(cuid())
+  texto     String
+  authorId  String
+  author    User         @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  taskId    String?
+  task      ProjectTask? @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  projectId String?
+  project   Project?     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt DateTime     @default(now())
+}
+
+
+
+model ChatMessage {
+  id             String        @id @default(cuid())
+  contenido      String
+  senderId       String
+  sender         User          @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  voiceUrl       String?
+  mentions       User[]        @relation("MentionedIn")
+  attachedFileId String?
+  attachedFile   ProjectFile?  @relation(fields: [attachedFileId], references: [id], onDelete: SetNull)
+  attachedTaskId String?
+  attachedTask   ProjectTask?  @relation(fields: [attachedTaskId], references: [id], onDelete: SetNull)
+  timestamp      DateTime      @default(now())
+}
