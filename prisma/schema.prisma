@@ -5,7 +5,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 /// Estados operativos persistidos en `Project.estatus` (solo identificadores `SNAKE_CASE`, sin espacios).
