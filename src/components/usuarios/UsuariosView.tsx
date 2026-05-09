@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Users, Trash2, UserPlus, Plus, X, Pencil, Building, MessageCircle } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -724,7 +725,14 @@ export function UsuariosView() {
               ) : (
                 sortedUsers.map((u) => (
                   <tr key={u.id} className="transition-colors hover:bg-muted/20">
-                    <td className="px-4 py-3 font-medium text-foreground">{u.nombre}</td>
+                    <td className="px-4 py-3 font-medium text-foreground">
+                      <Link
+                        href={`/usuarios/${u.id}`}
+                        className="text-accent underline-offset-4 hover:underline"
+                      >
+                        {u.nombre}
+                      </Link>
+                    </td>
                     <td className="px-4 py-3 text-muted-foreground">
                       <div className="flex items-center gap-1.5">
                         <Building className="h-3 w-3 text-muted-foreground/70" />

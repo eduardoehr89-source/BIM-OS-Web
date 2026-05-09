@@ -1,27 +1,42 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { Prisma } from "@/generated/prisma";
 import { prisma } from "@/lib/prisma";
 import { parseTaskComplexity, parseTaskDiscipline, parseTaskActivity, parseTaskEstatus } from "@/lib/project-enums";
-import { getCurrentUserId } from "@/lib/auth";
+import { getCurrentUserId, verifyToken } from "@/lib/auth";
+
+export const dynamic = "force-dynamic";
 
 type Params = { params: Promise<{ id: string }> };
 
 export async function GET(_req: Request, ctx: Params) {
   const userId = await getCurrentUserId();
+  const cookieStore = await cookies();
+  const token = cookieStore.get("bimos_session")?.value;
+  const payload = token ? await verifyToken(token) : null;
+  const isAdmin = payload?.tipo === "ADMIN";
+
   const { id: projectId } = await ctx.params;
   const project = await prisma.project.findUnique({ where: { id: projectId } });
   if (!project) return NextResponse.json({ error: "Proyecto no encontrado" }, { status: 404 });
 
+  const visibility =
+    isAdmin
+      ? {}
+      : userId
+        ? {
+            OR: [
+              { ownerId: userId },
+              { sharedWith: { some: { id: userId } } },
+              { assignments: { some: { userId } } },
+            ],
+          }
+        : { id: { in: [] } };
+
   const tasks = await prisma.projectTask.findMany({
-    where: { 
+    where: {
       projectId,
-      ...(userId ? { 
-        OR: [
-          { ownerId: userId }, 
-          { sharedWith: { some: { id: userId } } },
-          { assignments: { some: { userId, isAccepted: true } } }
-        ] 
-      } : {})
+      ...visibility,
     },
     orderBy: [{ fechaTermino: "asc" }, { nombre: "asc" }],
     include: {

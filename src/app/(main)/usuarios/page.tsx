@@ -1,5 +1,7 @@
 import { UsuariosView } from "@/components/usuarios/UsuariosView";
 
+export const dynamic = "force-dynamic";
+
 export const metadata = {
   title: "Gestión de Usuarios | BIM.OS",
 };

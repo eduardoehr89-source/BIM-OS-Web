@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
-import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUserId } from "@/lib/auth";
+import { getCurrentUserId, verifyToken } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 /**
  * Listado global de tareas visibles para el usuario actual.
- * Misma regla de visibilidad que GET /api/projects/[id]/tasks.
+ * ADMIN: todas las tareas (alineado con el conteo del dashboard).
+ * USER: dueño, compartidas en la tarea, o con asignación (aceptada o pendiente).
  */
 export async function GET() {
   try {
@@ -16,14 +17,21 @@ export async function GET() {
       return NextResponse.json([]);
     }
 
+    const cookieStore = await cookies();
+    const token = cookieStore.get("bimos_session")?.value;
+    const payload = token ? await verifyToken(token) : null;
+    const isAdmin = payload?.tipo === "ADMIN";
+
     const tasks = await prisma.projectTask.findMany({
-      where: {
-        OR: [
-          { ownerId: userId },
-          { sharedWith: { some: { id: userId } } },
-          { assignments: { some: { userId, isAccepted: true } } },
-        ],
-      },
+      where: isAdmin
+        ? {}
+        : {
+            OR: [
+              { ownerId: userId },
+              { sharedWith: { some: { id: userId } } },
+              { assignments: { some: { userId } } },
+            ],
+          },
       orderBy: [{ fechaTermino: "asc" }, { nombre: "asc" }],
       include: {
         project: {
