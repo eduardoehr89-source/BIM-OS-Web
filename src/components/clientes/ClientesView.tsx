@@ -49,6 +49,7 @@ export function ClientesView({ userRole }: { userRole?: string }) {
   const [detailRefreshNonce, setDetailRefreshNonce] = useState(0);
 
   const [newName, setNewName] = useState("");
+  const [newCountry, setNewCountry] = useState("");
   const [creating, setCreating] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [deleteClientTarget, setDeleteClientTarget] = useState<ClientItem | null>(null);
@@ -183,6 +184,7 @@ export function ClientesView({ userRole }: { userRole?: string }) {
     try {
       const fd = new FormData();
       fd.append("nombre", nombre);
+      if (newCountry.trim()) fd.append("country", newCountry.trim());
       if (oir) fd.append("oir", oir);
       if (air) fd.append("air", air);
       if (eir) fd.append("eir", eir);
@@ -196,6 +198,7 @@ export function ClientesView({ userRole }: { userRole?: string }) {
       }
       const created = (await res.json()) as ClientItem;
       setNewName("");
+      setNewCountry("");
       setShowCreateForm(false);
       await loadList();
       setSelectedId(created.id);
@@ -345,16 +348,27 @@ export function ClientesView({ userRole }: { userRole?: string }) {
             </button>
           </div>
           <form onSubmit={createClient} className="space-y-4">
-            <label className="block text-xs font-medium text-muted-foreground">
-              Nombre de la empresa
-              <input
-                className={field}
-                placeholder="Ej. Arquitectura S.A."
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                required
-              />
-            </label>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="block text-xs font-medium text-muted-foreground">
+                Nombre de la empresa
+                <input
+                  className={field}
+                  placeholder="Ej. Arquitectura S.A."
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  required
+                />
+              </label>
+              <label className="block text-xs font-medium text-muted-foreground">
+                País (Opcional)
+                <input
+                  className={field}
+                  placeholder="Ej. México"
+                  value={newCountry}
+                  onChange={(e) => setNewCountry(e.target.value)}
+                />
+              </label>
+            </div>
             <div className="space-y-3 rounded-xl border border-border/50 bg-background/50 p-4">
               <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Documentación ISO 19650 (Opcional)

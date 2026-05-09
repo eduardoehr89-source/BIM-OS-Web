@@ -77,6 +77,7 @@ export async function POST(req: Request) {
   }
 
   const nombre = String(formData.get("nombre") ?? "").trim();
+  const country = String(formData.get("country") ?? "").trim() || null;
   const oir = formData.get("oir");
   const air = formData.get("air");
   const eir = formData.get("eir");
@@ -88,8 +89,9 @@ export async function POST(req: Request) {
   const adminId = gate.userId;
 
   try {
+    const userExists = await prisma.user.findUnique({ where: { id: adminId } });
     const client = await prisma.client.create({
-      data: { nombre, activo: true, ownerId: adminId },
+      data: { nombre, activo: true, ownerId: userExists ? adminId : null, country },
     });
 
     async function createIsoDoc(f: File) {

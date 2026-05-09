@@ -158,6 +158,7 @@ model Client {
   id         String       @id @default(cuid())
   nombre     String       @unique
   activo     Boolean      @default(true)
+  country    String?
   projects   Project[]
   ownerId    String?
   owner      User?        @relation("ClientOwner", fields: [ownerId], references: [id], onDelete: Cascade)
