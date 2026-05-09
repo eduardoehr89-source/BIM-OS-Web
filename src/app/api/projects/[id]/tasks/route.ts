@@ -83,6 +83,8 @@ export async function POST(req: Request, ctx: Params) {
       idsToShare = userIds.filter((id) => !allowedIds.has(id));
     }
 
+    const userExists = await prisma.user.findUnique({ where: { id: userId } });
+
     const created = await prisma.projectTask.create({
       data: {
         projectId,
@@ -95,7 +97,7 @@ export async function POST(req: Request, ctx: Params) {
         completado,
         comentarios,
         clienteNombre,
-        ownerId: userId,
+        ownerId: userExists ? userId : null,
         assignments: userIds.length > 0 ? {
           create: userIds.map((id: string) => ({
             userId: id,
@@ -115,6 +117,12 @@ export async function POST(req: Request, ctx: Params) {
         }
       });
     }
+    
+    // Forzamos invalidación para que la nueva tarea se refleje en el frontend
+    const { revalidatePath } = await import("next/cache");
+    revalidatePath("/proyectos");
+    revalidatePath("/dashboard");
+    
     return NextResponse.json(created, { status: 201 });
   } catch (e) {
     console.error("[POST /api/projects/[id]/tasks]", e);
