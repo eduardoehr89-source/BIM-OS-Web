@@ -63,8 +63,7 @@ export async function POST(req: Request) {
   if (!contentType.includes("multipart/form-data")) {
     return NextResponse.json(
       {
-        error:
-          "Envía multipart/form-data con campos: nombre, oir, air, eir (archivos PDF o Word obligatorios para el perfil ISO).",
+        error: "Envía multipart/form-data con campos: nombre (archivos OIR, AIR, EIR son opcionales).",
       },
       { status: 400 },
     );
@@ -84,12 +83,6 @@ export async function POST(req: Request) {
 
   if (!nombre) {
     return NextResponse.json({ error: "El nombre es obligatorio" }, { status: 400 });
-  }
-  if (!(oir instanceof File) || !oir.size || !(air instanceof File) || !air.size || !(eir instanceof File) || !eir.size) {
-    return NextResponse.json(
-      { error: "OIR, AIR y EIR son obligatorios (tres archivos PDF o Word)." },
-      { status: 400 },
-    );
   }
 
   const adminId = gate.userId;
@@ -112,16 +105,28 @@ export async function POST(req: Request) {
       });
     }
 
-    const [oirRow, airRow, eirRow] = await Promise.all([createIsoDoc(oir), createIsoDoc(air), createIsoDoc(eir)]);
+    let oirRow, airRow, eirRow;
 
-    await prisma.client.update({
-      where: { id: client.id },
-      data: {
-        oirFileId: oirRow.id,
-        airFileId: airRow.id,
-        eirFileId: eirRow.id,
-      },
-    });
+    if (oir instanceof File && oir.size) {
+      oirRow = await createIsoDoc(oir);
+    }
+    if (air instanceof File && air.size) {
+      airRow = await createIsoDoc(air);
+    }
+    if (eir instanceof File && eir.size) {
+      eirRow = await createIsoDoc(eir);
+    }
+
+    if (oirRow || airRow || eirRow) {
+      await prisma.client.update({
+        where: { id: client.id },
+        data: {
+          ...(oirRow ? { oirFileId: oirRow.id } : {}),
+          ...(airRow ? { airFileId: airRow.id } : {}),
+          ...(eirRow ? { eirFileId: eirRow.id } : {}),
+        },
+      });
+    }
 
     const full = await prisma.client.findUnique({
       where: { id: client.id },

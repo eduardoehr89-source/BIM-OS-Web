@@ -177,18 +177,15 @@ export function ClientesView({ userRole }: { userRole?: string }) {
     const oir = form.querySelector<HTMLInputElement>('input[name="oir"]')?.files?.[0];
     const air = form.querySelector<HTMLInputElement>('input[name="air"]')?.files?.[0];
     const eir = form.querySelector<HTMLInputElement>('input[name="eir"]')?.files?.[0];
-    if (!oir?.size || !air?.size || !eir?.size) {
-      setError("OIR, AIR y EIR son obligatorios (PDF o Word).");
-      return;
-    }
+
     setCreating(true);
     setError(null);
     try {
       const fd = new FormData();
       fd.append("nombre", nombre);
-      fd.append("oir", oir);
-      fd.append("air", air);
-      fd.append("eir", eir);
+      if (oir) fd.append("oir", oir);
+      if (air) fd.append("air", air);
+      if (eir) fd.append("eir", eir);
       const res = await fetch("/api/clients", {
         method: "POST",
         body: fd,
@@ -358,22 +355,30 @@ export function ClientesView({ userRole }: { userRole?: string }) {
                 required
               />
             </label>
-            <div className="grid gap-4 sm:grid-cols-3">
-              <label className="block text-xs font-medium text-muted-foreground">
-                OIR (PDF/Word) *
-                <input name="oir" type="file" accept={TECHNICAL_UPLOAD_ACCEPT} required className="mt-1 block w-full text-xs text-foreground file:mr-2 file:rounded file:border-0 file:bg-muted file:px-2 file:py-1" />
-              </label>
-              <label className="block text-xs font-medium text-muted-foreground">
-                AIR (PDF/Word) *
-                <input name="air" type="file" accept={TECHNICAL_UPLOAD_ACCEPT} required className="mt-1 block w-full text-xs text-foreground file:mr-2 file:rounded file:border-0 file:bg-muted file:px-2 file:py-1" />
-              </label>
-              <label className="block text-xs font-medium text-muted-foreground">
-                EIR (PDF/Word) *
-                <input name="eir" type="file" accept={TECHNICAL_UPLOAD_ACCEPT} required className="mt-1 block w-full text-xs text-foreground file:mr-2 file:rounded file:border-0 file:bg-muted file:px-2 file:py-1" />
-              </label>
+            <div className="space-y-3 rounded-xl border border-border/50 bg-background/50 p-4">
+              <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Documentación ISO 19650 (Opcional)
+              </h3>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <label className="flex flex-col gap-1.5 cursor-pointer">
+                  <span className="text-xs font-medium text-foreground">OIR</span>
+                  <span className="text-[10px] text-muted-foreground">Requisitos de Organización</span>
+                  <input name="oir" type="file" accept={TECHNICAL_UPLOAD_ACCEPT} className="mt-1 block w-full text-[10px] text-muted-foreground file:mr-2 file:cursor-pointer file:rounded-md file:border-0 file:bg-accent/10 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-accent hover:file:bg-accent/20 transition-colors" />
+                </label>
+                <label className="flex flex-col gap-1.5 cursor-pointer">
+                  <span className="text-xs font-medium text-foreground">AIR</span>
+                  <span className="text-[10px] text-muted-foreground">Requisitos de Activos</span>
+                  <input name="air" type="file" accept={TECHNICAL_UPLOAD_ACCEPT} className="mt-1 block w-full text-[10px] text-muted-foreground file:mr-2 file:cursor-pointer file:rounded-md file:border-0 file:bg-accent/10 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-accent hover:file:bg-accent/20 transition-colors" />
+                </label>
+                <label className="flex flex-col gap-1.5 cursor-pointer">
+                  <span className="text-xs font-medium text-foreground">EIR</span>
+                  <span className="text-[10px] text-muted-foreground">Requisitos de Intercambio</span>
+                  <input name="eir" type="file" accept={TECHNICAL_UPLOAD_ACCEPT} className="mt-1 block w-full text-[10px] text-muted-foreground file:mr-2 file:cursor-pointer file:rounded-md file:border-0 file:bg-accent/10 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-accent hover:file:bg-accent/20 transition-colors" />
+                </label>
+              </div>
             </div>
             <p className="text-[11px] text-muted-foreground leading-relaxed">
-              Perfil normativo: los tres documentos son obligatorios. Solo administradores pueden registrar empresas nuevas.
+              Solo administradores pueden registrar empresas nuevas. Puedes añadir los documentos ISO en cualquier momento.
             </p>
             <button
               type="submit"
