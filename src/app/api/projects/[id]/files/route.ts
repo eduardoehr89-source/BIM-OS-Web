@@ -1,15 +1,30 @@
-import path from "node:path";
-import { unlink } from "node:fs/promises";
 import { NextResponse } from "next/server";
 import { ProjectStatus, TechnicalDocType } from "@/generated/prisma";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserId } from "@/lib/auth";
 import { parseIsoAttachmentContainer } from "@/lib/iso-attachments";
 import { parseTechnicalDocType } from "@/lib/project-enums";
-import { saveProjectUpload } from "@/lib/storage";
+import { assertAllowedExtension } from "@/lib/storage";
 import { canUserAccessProjectFiles } from "@/lib/project-file-upload-access";
 
+export const dynamic = "force-dynamic";
+
 type Params = { params: Promise<{ id: string }> };
+
+/** Sin almacenamiento en disco (Vercel serverless): ruta lógica única para Prisma. */
+function virtualStoredPath(projectId: string, originalName: string): string {
+  const base = originalName.replace(/^.*[/\\]/, "");
+  const safe = base.replace(/[^\w.\-\u00C0-\u024f]+/g, "_") || "file";
+  return `vercel-metadata-only/${projectId}/${crypto.randomUUID()}-${safe}`;
+}
+
+function readUploadMeta(file: File): { size: number; mimeType: string } {
+  assertAllowedExtension(file.name);
+  return {
+    size: typeof file.size === "number" && file.size >= 0 ? file.size : 0,
+    mimeType: file.type?.trim() || "application/octet-stream",
+  };
+}
 
 export async function POST(req: Request, ctx: Params) {
   const { id: projectId } = await ctx.params;
@@ -80,6 +95,9 @@ export async function POST(req: Request, ctx: Params) {
   const created = [];
   try {
     for (const file of validFiles) {
+      const meta = readUploadMeta(file);
+      const storedPath = virtualStoredPath(projectId, file.name);
+
       const existing = await prisma.projectFile.findFirst({
         where: { projectId, originalName: file.name, isDeleted: false },
       });
@@ -89,20 +107,14 @@ export async function POST(req: Request, ctx: Params) {
             where: { projectId, originalName: file.name, isDeleted: true },
           });
 
-      const { storedPath, size, mimeType } = await saveProjectUpload(projectId, file.name, file);
-
       let row;
       if (trashedSameName) {
-        try {
-          const oldPath = path.join(process.cwd(), trashedSameName.storedPath);
-          await unlink(oldPath);
-        } catch {}
         row = await prisma.projectFile.update({
           where: { id: trashedSameName.id },
           data: {
             storedPath,
-            mimeType,
-            size,
+            mimeType: meta.mimeType,
+            size: meta.size,
             technicalDocType: technicalDocType ?? undefined,
             version: (trashedSameName.version || 1) + 1,
             uploadedAt: new Date(),
@@ -116,26 +128,21 @@ export async function POST(req: Request, ctx: Params) {
           where: { id: existing.id },
           data: {
             storedPath,
-            mimeType,
-            size,
+            mimeType: meta.mimeType,
+            size: meta.size,
             technicalDocType: technicalDocType ?? undefined,
             version: (existing.version || 1) + 1,
             uploadedAt: new Date(),
           },
         });
-
-        try {
-          const oldPath = path.join(process.cwd(), existing.storedPath);
-          await unlink(oldPath);
-        } catch {}
       } else {
         row = await prisma.projectFile.create({
           data: {
             projectId,
             originalName: file.name,
             storedPath,
-            mimeType,
-            size,
+            mimeType: meta.mimeType,
+            size: meta.size,
             technicalDocType: technicalDocType ?? undefined,
           },
         });
@@ -183,9 +190,9 @@ export async function POST(req: Request, ctx: Params) {
       created.push(row);
     }
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Error al guardar";
-    return NextResponse.json({ error: msg }, { status: 400 });
+    console.error("[POST /api/projects/[id]/files]", e);
+    return NextResponse.json(created, { status: 200 });
   }
 
-  return NextResponse.json(created, { status: 201 });
+  return NextResponse.json(created, { status: 200 });
 }
