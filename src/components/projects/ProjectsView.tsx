@@ -54,6 +54,7 @@ type ProjectRow = {
 
 const field =
   "mt-1.5 w-full border-0 border-b border-input bg-transparent px-0 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-accent focus:outline-none focus:ring-0";
+const dateField = `${field} dark:[color-scheme:dark]`;
 
 function isoDateInputValue(iso: string | null | undefined): string {
   if (!iso) return "";
@@ -693,7 +694,7 @@ export function ProjectsView({
                           <input
                             type="date"
                             disabled={!canManageProjects}
-                            className={field}
+                            className={dateField}
                             value={form.milestoneSd}
                             onChange={(e) => setForm((f) => ({ ...f, milestoneSd: e.target.value }))}
                           />
@@ -703,7 +704,7 @@ export function ProjectsView({
                           <input
                             type="date"
                             disabled={!canManageProjects}
-                            className={field}
+                            className={dateField}
                             value={form.milestoneDd}
                             onChange={(e) => setForm((f) => ({ ...f, milestoneDd: e.target.value }))}
                           />
@@ -713,7 +714,7 @@ export function ProjectsView({
                           <input
                             type="date"
                             disabled={!canManageProjects}
-                            className={field}
+                            className={dateField}
                             value={form.milestoneCd}
                             onChange={(e) => setForm((f) => ({ ...f, milestoneCd: e.target.value }))}
                           />
@@ -723,7 +724,7 @@ export function ProjectsView({
                           <input
                             type="date"
                             disabled={!canManageProjects}
-                            className={field}
+                            className={dateField}
                             value={form.milestoneLicitacion}
                             onChange={(e) => setForm((f) => ({ ...f, milestoneLicitacion: e.target.value }))}
                           />
@@ -733,7 +734,7 @@ export function ProjectsView({
                           <input
                             type="date"
                             disabled={!canManageProjects}
-                            className={field}
+                            className={dateField}
                             value={form.milestoneAsBuilt}
                             onChange={(e) => setForm((f) => ({ ...f, milestoneAsBuilt: e.target.value }))}
                           />

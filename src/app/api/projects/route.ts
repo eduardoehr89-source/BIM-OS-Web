@@ -86,6 +86,8 @@ export async function POST(req: Request) {
     if (milestoneLicitacion !== undefined) milestoneData.milestoneLicitacion = milestoneLicitacion;
     if (milestoneAsBuilt !== undefined) milestoneData.milestoneAsBuilt = milestoneAsBuilt;
 
+    const userExists = await prisma.user.findUnique({ where: { id: userId } });
+
     const created = await prisma.project.create({
       data: {
         nombre,
@@ -94,7 +96,7 @@ export async function POST(req: Request) {
         tipologia,
         estatus: ProjectStatus.INCOMPLETO,
         clientId: clienteId,
-        ownerId: userId,
+        ownerId: userExists ? userId : null,
         disciplinesInvolved,
         projectCode: projectCode ?? undefined,
         ...milestoneData,
