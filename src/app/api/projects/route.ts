@@ -31,8 +31,11 @@ export async function GET() {
     });
     return NextResponse.json(projects);
   } catch (e) {
-    console.error("[GET /api/projects]", e);
-    return NextResponse.json({ error: "No se pudieron cargar los proyectos" }, { status: 500 });
+    console.error("[DIAGNOSTICO 500 GET /api/projects]", e);
+    // Retornamos el mensaje real del error para depurar rápido (cuidado, expone info de la base de datos temporalmente)
+    const errMessage = e instanceof Error ? e.message : String(e);
+    const errStack = e instanceof Error ? e.stack : undefined;
+    return NextResponse.json({ error: "No se pudieron cargar los proyectos", detalles: errMessage, stack: errStack }, { status: 500 });
   }
 }
 
