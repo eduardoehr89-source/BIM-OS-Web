@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>BimOsConnector</AssemblyName>
+    <RootNamespace>BimOsConnector</RootNamespace>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <!-- Conflictos inofensivos System.Drawing / VisualBasic y arquitectura con RevitAPI -->
+    <NoWarn>MSB3277;MSB3270</NoWarn>
+  </PropertyGroup>
+
+  <!-- Ajusta la ruta a tu instalación de Revit -->
+  <ItemGroup>
+    <Reference Include="RevitAPI">
+      <HintPath>C:\Program Files\Autodesk\Revit 2024\RevitAPI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="RevitAPIUI">
+      <HintPath>C:\Program Files\Autodesk\Revit 2024\RevitAPIUI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target AfterTargets="Build" Name="CopiarPlugin">
+    <Exec Command="if not exist &quot;C:\BimOsPlugin&quot; mkdir &quot;C:\BimOsPlugin&quot;&#xD;&#xA;copy &quot;$(TargetPath)&quot; &quot;C:\BimOsPlugin\&quot; /Y" />
+  </Target>
+</Project>
