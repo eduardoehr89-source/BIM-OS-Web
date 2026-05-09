@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUserId } from "@/lib/auth";
+import { getCurrentUserId, verifyToken } from "@/lib/auth";
+import { cookies } from "next/headers";
 import { ensureIsoAttachmentStructure } from "@/lib/iso-attachments";
 
 type Params = { params: Promise<{ id: string }> };
@@ -17,8 +18,13 @@ async function canAccessProject(userId: string, projectId: string, isAdmin: bool
 }
 
 export async function POST(_req: Request, ctx: Params) {
+  const cookieStore = await cookies();
+  const token = cookieStore.get("bimos_session")?.value;
+  const payload = token ? await verifyToken(token) : null;
+  const isAdmin = payload?.tipo === "ADMIN";
+  
   const userId = await getCurrentUserId();
-  if (!userId) {
+  if (!userId && !isAdmin) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
 
@@ -28,13 +34,11 @@ export async function POST(_req: Request, ctx: Params) {
     return NextResponse.json({ error: "Proyecto no encontrado" }, { status: 404 });
   }
 
-  const member = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { tipo: true },
-  });
-  const isAdmin = member?.tipo === "ADMIN";
-  if (!(await canAccessProject(userId, projectId, isAdmin))) {
-    return NextResponse.json({ error: "Sin acceso a este proyecto" }, { status: 403 });
+  // Si userId está presente, verificamos acceso en DB. Si es admin por token (rescate o DB), pasa directo.
+  if (!isAdmin && userId) {
+    if (!(await canAccessProject(userId, projectId, isAdmin))) {
+      return NextResponse.json({ error: "Sin acceso a este proyecto" }, { status: 403 });
+    }
   }
 
   try {

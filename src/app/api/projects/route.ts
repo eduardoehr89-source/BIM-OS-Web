@@ -89,6 +89,21 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Cliente no existe" }, { status: 400 });
     }
 
+    // Verificar si ya existe un proyecto con el mismo nombre para este cliente
+    const existingProject = await prisma.project.findFirst({
+      where: {
+        clientId: clienteId,
+        nombre: {
+          equals: nombre,
+          mode: 'insensitive'
+        }
+      }
+    });
+
+    if (existingProject) {
+      return NextResponse.json({ error: "Ya existe un proyecto con ese nombre para este cliente" }, { status: 400 });
+    }
+
     const milestoneData: Record<string, Date | null | undefined> = {};
     if (milestoneSd !== undefined) milestoneData.milestoneSd = milestoneSd;
     if (milestoneDd !== undefined) milestoneData.milestoneDd = milestoneDd;
