@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifyToken, getCurrentUserId } from "@/lib/auth";
 import { cookies } from "next/headers";
 import { normalizeRolProfesional } from "@/lib/professional-roles";
 import { sharesProjectsBetween } from "@/lib/canal-access";
+
+export const dynamic = "force-dynamic";
 
 type UserTipoStr = "ADMIN" | "USER";
 
@@ -128,6 +131,8 @@ export async function POST(request: Request) {
         createdAt: true,
       },
     });
+
+    revalidatePath("/usuarios");
 
     return NextResponse.json(user);
   } catch {

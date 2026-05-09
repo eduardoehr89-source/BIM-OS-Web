@@ -1,10 +1,13 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import type { Prisma } from "@/generated/prisma";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserId, verifyToken } from "@/lib/auth";
 import { requireAdminSession } from "@/lib/project-rbac";
 import { saveClientUpload } from "@/lib/storage";
+
+export const dynamic = "force-dynamic";
 
 const CLIENT_LIST_INCLUDE = {
   _count: { select: { projects: true } },
@@ -139,6 +142,9 @@ export async function POST(req: Request) {
         eirFile: { select: { id: true, originalName: true } },
       },
     });
+
+    revalidatePath("/clientes");
+    revalidatePath("/proyectos");
 
     return NextResponse.json(full, { status: 201 });
   } catch (e) {

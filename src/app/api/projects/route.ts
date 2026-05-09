@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { Prisma } from "@/generated/prisma";
 import { ProjectStatus } from "@/generated/prisma";
 import { prisma } from "@/lib/prisma";
@@ -10,6 +11,8 @@ import {
   parseOptionalIsoDate,
   parseProjectCodeField,
 } from "@/lib/project-disciplines";
+
+export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
@@ -103,6 +106,10 @@ export async function POST(req: Request) {
       },
       include: PROJECT_API_LIST_INCLUDE,
     });
+    
+    revalidatePath("/proyectos");
+    revalidatePath("/dashboard");
+    
     return NextResponse.json(created, { status: 201 });
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
