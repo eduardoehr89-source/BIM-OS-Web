@@ -4,9 +4,12 @@ import { ProjectStatus, TaskEstatus } from "@/generated/prisma";
 import { prisma } from "@/lib/prisma";
 import { labelProjectStatus } from "@/lib/project-status";
 import { labelTaskEstatus } from "@/lib/project-enums";
-import { getCurrentUserId } from "@/lib/auth";
+import { getCurrentUserId, verifyToken } from "@/lib/auth";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { PendingTaskCard } from "@/components/dashboard/PendingTaskCard";
+
+export const dynamic = "force-dynamic";
 
 /** Orden fijo alineado con `enum ProjectStatus` en schema.prisma. */
 const PROJECT_STATUS_ORDER = [
@@ -24,9 +27,25 @@ export default async function DashboardPage() {
     redirect("/login");
   }
 
-  const resourceWhere = {
-    OR: [{ ownerId: userId }, { sharedWith: { some: { id: userId } } }],
-  };
+  const cookieStore = await cookies();
+  const token = cookieStore.get("bimos_session")?.value;
+  const payload = token ? await verifyToken(token) : null;
+  const isAdmin = payload?.tipo === "ADMIN";
+
+  const resourceWhere = isAdmin 
+    ? {} 
+    : {
+        OR: [{ ownerId: userId }, { sharedWith: { some: { id: userId } } }],
+      };
+
+  const tasksWhere = isAdmin
+    ? {}
+    : {
+        OR: [
+          { ownerId: userId },
+          { assignments: { some: { userId, isAccepted: true } } }
+        ]
+      };
 
   let total = 0;
   let terminados = 0;
@@ -34,13 +53,12 @@ export default async function DashboardPage() {
   let totalClientes = 0;
   let tasksTotal = 0;
   let countsByTaskEstatus: Record<string, number> = {};
-  let isAdmin = false;
   let workload: { nombre: string; count: number }[] = [];
   let pendingTasks: { id: string; nombre: string; project: { nombre: string } }[] = [];
   let loadError: string | null = null;
 
   try {
-    const [t, term, grouped, tc, tt, groupedTasks, user, pendingAssign] = await Promise.all([
+    const [t, term, grouped, tc, tt, groupedTasks, pendingAssign] = await Promise.all([
       prisma.project.count({ where: resourceWhere }),
       prisma.project.count({
         where: { ...resourceWhere, estatus: ProjectStatus.TERMINADO },
@@ -51,25 +69,12 @@ export default async function DashboardPage() {
         _count: { id: true },
       }),
       prisma.client.count({ where: resourceWhere }),
-      prisma.projectTask.count({ 
-        where: { 
-          OR: [
-            { ownerId: userId },
-            { assignments: { some: { userId, isAccepted: true } } }
-          ]
-        } 
-      }),
+      prisma.projectTask.count({ where: tasksWhere }),
       prisma.projectTask.groupBy({
         by: ["taskEstatus"],
-        where: { 
-          OR: [
-            { ownerId: userId },
-            { assignments: { some: { userId, isAccepted: true } } }
-          ]
-        },
+        where: tasksWhere,
         _count: { id: true },
       }),
-      prisma.user.findUnique({ where: { id: userId }, select: { tipo: true } }),
       prisma.projectTask.findMany({
         where: {
           assignments: { some: { userId, isAccepted: false } }
@@ -84,7 +89,6 @@ export default async function DashboardPage() {
     totalClientes = tc;
     tasksTotal = tt;
     countsByTaskEstatus = Object.fromEntries(groupedTasks.map((g) => [g.taskEstatus, g._count.id]));
-    isAdmin = user?.tipo === "ADMIN";
     pendingTasks = pendingAssign;
 
     if (isAdmin) {

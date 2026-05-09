@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Repositorio técnico",
+  title: "BIM.OS",
   description: "Gestión de proyectos y archivos PDF/DWG",
 };
 

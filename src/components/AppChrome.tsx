@@ -105,7 +105,7 @@ export function AppChrome({
               href="/dashboard"
               className="truncate text-sm font-semibold tracking-tight text-slate-100 transition hover:text-white"
             >
-              Repositorio técnico
+              BIM.OS
             </Link>
           </div>
 
