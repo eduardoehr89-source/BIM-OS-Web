@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AtSign,
   Bell,
@@ -46,6 +46,46 @@ type NotifSettings = {
   userWatchlist: string;
 };
 
+/** Alineado con Prisma / GET por defecto: tolera respuestas parciales o `null`. */
+function normalizeNotifSettings(raw: unknown): NotifSettings {
+  const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const d = o.detalleNotificacion;
+  const detalle: NotifSettings["detalleNotificacion"] =
+    d === "BREVE" || d === "INTERMEDIO" || d === "COMPLETO" ? d : "BREVE";
+  const str = (v: unknown, fallback = "") => (typeof v === "string" ? v : fallback);
+  const bool = (v: unknown, fallback: boolean) => (typeof v === "boolean" ? v : fallback);
+  const cs = o.calendarioSilencio;
+  let cal: string;
+  if (typeof cs === "string") {
+    cal = cs;
+  } else if (cs != null && typeof cs === "object") {
+    try {
+      cal = JSON.stringify(cs);
+    } catch {
+      cal = "{}";
+    }
+  } else {
+    cal = "{}";
+  }
+  return {
+    id: str(o.id, "temp_default"),
+    soloAltaPrioridad: bool(o.soloAltaPrioridad, false),
+    soloMenciones: bool(o.soloMenciones, false),
+    filtroMensajes: bool(o.filtroMensajes, true),
+    filtroProyectos: bool(o.filtroProyectos, true),
+    filtroTareas: bool(o.filtroTareas, true),
+    selectedChannels: str(o.selectedChannels),
+    clientesFiltro: str(o.clientesFiltro),
+    proyectosFiltro: str(o.proyectosFiltro),
+    silenceAllDays: bool(o.silenceAllDays, false),
+    silence24h: bool(o.silence24h, false),
+    detalleNotificacion: detalle,
+    calendarioSilencio: cal || "{}",
+    fileExtensionsFilter: str(o.fileExtensionsFilter),
+    userWatchlist: str(o.userWatchlist),
+  };
+}
+
 type ChannelItem = { id: string; nombre: string };
 type ProjectItem = { id: string; nombre: string };
 type ClientItem  = { id: string; nombre: string };
@@ -65,6 +105,16 @@ type TrashItem = {
 
 const DIAS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 const ALL_DIAS = [0, 1, 2, 3, 4, 5, 6];
+
+const DETALLE_NOTIF_OPTIONS: {
+  id: NotifSettings["detalleNotificacion"];
+  label: string;
+  desc: string;
+}[] = [
+  { id: "BREVE", label: "Breve (Privacidad Máxima)", desc: 'Solo muestra "Tienes un nuevo mensaje"' },
+  { id: "INTERMEDIO", label: "Intermedio", desc: "Muestra remitente y canal" },
+  { id: "COMPLETO", label: "Completo", desc: "Muestra remitente, canal y contenido" },
+];
 
 function formatTrashAuditDate(iso: string | null): string {
   if (!iso) return "—";
@@ -214,42 +264,21 @@ export function ConfiguracionView({ isSupremo, isAdmin }: { isSupremo?: boolean;
   const [nipDraft, setNipDraft] = useState("");
   const [nipBusy, setNipBusy] = useState(false);
   const [nipMsg, setNipMsg] = useState("");
+  /** 401 o fallo duro; si hay texto y no hay settings, no mostramos el formulario. */
+  const [configLoadError, setConfigLoadError] = useState("");
+  /** Aviso suave cuando usamos valores por defecto tras un fallo parcial. */
+  const [configLoadWarning, setConfigLoadWarning] = useState("");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Horario de silencio (estado local derivado del JSON)
   const [silDias,   setSilDias]   = useState<number[]>([]);
   const [silInicio, setSilInicio] = useState("22:00");
-  const [silFin,    setSilFin]    = useState("08:00");
+  const [silFin, setSilFin] = useState("08:00");
 
-  useEffect(() => {
-    void loadAll();
-  }, [isAdmin, isSupremo]);
-
-  async function saveNip() {
-    if (nipDraft.length !== 4) return;
-    setNipBusy(true);
-    setNipMsg("");
-    try {
-      const res = await fetch("/api/auth/me", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nip: nipDraft }),
-      });
-      const j = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) {
-        setNipMsg(j.error ?? "No se pudo guardar");
-        return;
-      }
-      setHasNip(true);
-      setNipDraft("");
-      setNipMsg("NIP guardado correctamente.");
-    } finally {
-      setNipBusy(false);
-    }
-  }
-
-  async function loadAll() {
+  const loadAll = useCallback(async () => {
     setLoading(true);
+    setConfigLoadError("");
+    setConfigLoadWarning("");
     try {
       const [rSettings, rProjects, rClients, rChannels, rTrash, rMe] = await Promise.all([
         fetch("/api/configuracion"),
@@ -267,21 +296,40 @@ export function ConfiguracionView({ isSupremo, isAdmin }: { isSupremo?: boolean;
         setHasNip(false);
       }
 
-      if (rSettings.ok) {
-        const raw = await rSettings.json();
-        const s = raw as NotifSettings;
-        setSettings({
-          ...s,
-          fileExtensionsFilter: typeof s.fileExtensionsFilter === "string" ? s.fileExtensionsFilter : "",
-          userWatchlist: typeof s.userWatchlist === "string" ? s.userWatchlist : "",
-        });
+      if (rSettings.status === 401) {
+        setSettings(null);
+        setConfigLoadError("No autorizado. Inicia sesión de nuevo para cargar la configuración.");
+      } else if (rSettings.ok) {
         try {
-          const cal = JSON.parse(s.calendarioSilencio || "{}");
-          if (Array.isArray(cal.dias))    setSilDias(cal.dias);
-          if (typeof cal.horaInicio === "string") setSilInicio(cal.horaInicio);
-          if (typeof cal.horaFin    === "string") setSilFin(cal.horaFin);
-        } catch { /* noop */ }
-        if (s.filtroMensajes) setShowChannelList(true);
+          const raw: unknown = await rSettings.json();
+          const looksLikeErrOnly =
+            raw &&
+            typeof raw === "object" &&
+            "error" in (raw as object) &&
+            !("soloAltaPrioridad" in (raw as object));
+          if (looksLikeErrOnly) {
+            setSettings(normalizeNotifSettings({}));
+            setConfigLoadWarning("No se pudo leer la configuración del servidor. Mostrando valores por defecto.");
+          } else {
+            const s = normalizeNotifSettings(raw);
+            setSettings(s);
+            try {
+              const cal = JSON.parse(s.calendarioSilencio || "{}");
+              if (Array.isArray(cal.dias)) setSilDias(cal.dias);
+              if (typeof cal.horaInicio === "string") setSilInicio(cal.horaInicio);
+              if (typeof cal.horaFin === "string") setSilFin(cal.horaFin);
+            } catch {
+              /* noop */
+            }
+            if (s.filtroMensajes) setShowChannelList(true);
+          }
+        } catch {
+          setSettings(normalizeNotifSettings({}));
+          setConfigLoadWarning("Respuesta inválida del servidor. Mostrando valores por defecto.");
+        }
+      } else {
+        setSettings(normalizeNotifSettings({}));
+        setConfigLoadWarning("No se pudo sincronizar la configuración. Mostrando valores por defecto.");
       }
 
       if (rProjects.ok) {
@@ -321,8 +369,42 @@ export function ConfiguracionView({ isSupremo, isAdmin }: { isSupremo?: boolean;
       } else {
         setWatchUsers([]);
       }
-    } catch (e) { console.error(e); }
-    finally { setLoading(false); }
+    } catch (e) {
+      console.error(e);
+      setSettings(normalizeNotifSettings({}));
+      setConfigLoadWarning("Error de red o del cliente al cargar. Mostrando valores por defecto.");
+    } finally {
+      setLoading(false);
+    }
+  }, [isAdmin, isSupremo]);
+
+  useEffect(() => {
+    // Carga inicial: fetch y setState ocurren tras microtasks (await fetch).
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- patrón estándar de carga al montar
+    void loadAll();
+  }, [loadAll]);
+
+  async function saveNip() {
+    if (nipDraft.length !== 4) return;
+    setNipBusy(true);
+    setNipMsg("");
+    try {
+      const res = await fetch("/api/auth/me", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nip: nipDraft }),
+      });
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setNipMsg(j.error ?? "No se pudo guardar");
+        return;
+      }
+      setHasNip(true);
+      setNipDraft("");
+      setNipMsg("NIP guardado correctamente.");
+    } finally {
+      setNipBusy(false);
+    }
   }
 
   function updateSetting<K extends keyof NotifSettings>(key: K, value: NotifSettings[K]) {
@@ -358,13 +440,17 @@ export function ConfiguracionView({ isSupremo, isAdmin }: { isSupremo?: boolean;
         body: JSON.stringify({ ...settings, calendarioSilencio }),
       });
       if (!res.ok) throw new Error("Error al guardar");
-      const updatedRaw = await res.json();
-      const updated = updatedRaw as NotifSettings;
-      setSettings({
-        ...updated,
-        fileExtensionsFilter: typeof updated.fileExtensionsFilter === "string" ? updated.fileExtensionsFilter : "",
-        userWatchlist: typeof updated.userWatchlist === "string" ? updated.userWatchlist : "",
-      });
+      const updatedRaw: unknown = await res.json();
+      const errOnly =
+        updatedRaw &&
+        typeof updatedRaw === "object" &&
+        "error" in updatedRaw &&
+        !("soloAltaPrioridad" in updatedRaw);
+      if (errOnly) {
+        throw new Error((updatedRaw as { error?: string }).error ?? "Error al guardar");
+      }
+      setSettings(normalizeNotifSettings(updatedRaw));
+      setConfigLoadWarning("");
       setSaved(true);
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(() => setSaved(false), 2500);
@@ -425,7 +511,11 @@ export function ConfiguracionView({ isSupremo, isAdmin }: { isSupremo?: boolean;
   }
 
   if (!settings) {
-    return <p className="text-sm text-destructive">No se pudo cargar la configuración.</p>;
+    return (
+      <p className="text-sm text-destructive">
+        {configLoadError || "No se pudo cargar la configuración."}
+      </p>
+    );
   }
 
   const activeChannels  = settings.selectedChannels.split(",").filter(Boolean);
@@ -471,6 +561,12 @@ export function ConfiguracionView({ isSupremo, isAdmin }: { isSupremo?: boolean;
           {saving ? "Guardando…" : saved ? "¡Guardado!" : "Guardar cambios"}
         </button>
       </header>
+
+      {configLoadWarning && (
+        <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-sm text-amber-950 dark:text-amber-100/90">
+          {configLoadWarning}
+        </div>
+      )}
 
       {error && (
         <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -585,11 +681,7 @@ export function ConfiguracionView({ isSupremo, isAdmin }: { isSupremo?: boolean;
                 Nivel de detalle en las burbujas de aviso
               </p>
               <div className="grid gap-2">
-                {[
-                  { id: "BREVE", label: "Breve (Privacidad Máxima)", desc: 'Solo muestra "Tienes un nuevo mensaje"' },
-                  { id: "INTERMEDIO", label: "Intermedio", desc: "Muestra remitente y canal" },
-                  { id: "COMPLETO", label: "Completo", desc: "Muestra remitente, canal y contenido" },
-                ].map((opt) => (
+                {DETALLE_NOTIF_OPTIONS.map((opt) => (
                   <label
                     key={opt.id}
                     className={`flex cursor-pointer flex-col gap-1 rounded-xl border p-3 transition ${
@@ -604,7 +696,7 @@ export function ConfiguracionView({ isSupremo, isAdmin }: { isSupremo?: boolean;
                         type="radio"
                         name="detalleNotificacion"
                         checked={settings.detalleNotificacion === opt.id}
-                        onChange={() => updateSetting("detalleNotificacion", opt.id as any)}
+                        onChange={() => updateSetting("detalleNotificacion", opt.id)}
                         className="h-3.5 w-3.5 accent-accent"
                       />
                     </div>

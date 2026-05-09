@@ -2,15 +2,54 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserId } from "@/lib/auth";
 
+export const dynamic = "force-dynamic";
+
+function getDefaultSettings(userId: string) {
+  return {
+    id: "temp_default",
+    userId,
+    soloAltaPrioridad: false,
+    soloMenciones: false,
+    filtroMensajes: true,
+    filtroProyectos: true,
+    filtroTareas: true,
+    selectedChannels: "",
+    clientesFiltro: "",
+    proyectosFiltro: "",
+    silenceAllDays: false,
+    silence24h: false,
+    detalleNotificacion: "BREVE",
+    calendarioSilencio: "{}",
+    fileExtensionsFilter: "",
+    userWatchlist: "",
+    createdAt: new Date(),
+    updatedAt: new Date()
+  };
+}
+
 export async function GET() {
   const userId = await getCurrentUserId();
   if (!userId) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
 
-  let settings = await prisma.notificationSettings.findUnique({ where: { userId } });
-  if (!settings) {
-    settings = await prisma.notificationSettings.create({ data: { userId } });
+  try {
+    let settings = await prisma.notificationSettings.findUnique({ where: { userId } });
+    if (!settings) {
+      const userExists = await prisma.user.findUnique({ where: { id: userId } });
+      if (userExists) {
+        settings = await prisma.notificationSettings.upsert({
+          where: { userId },
+          create: { userId },
+          update: {},
+        });
+      } else {
+        return NextResponse.json(getDefaultSettings(userId));
+      }
+    }
+    return NextResponse.json(settings);
+  } catch (e) {
+    console.error("[GET /api/configuracion]", e);
+    return NextResponse.json(getDefaultSettings(userId));
   }
-  return NextResponse.json(settings);
 }
 
 export async function PATCH(request: Request) {
@@ -18,6 +57,7 @@ export async function PATCH(request: Request) {
   if (!userId) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
 
   try {
+    const userExists = await prisma.user.findUnique({ where: { id: userId } });
     const body = await request.json();
     const {
       soloAltaPrioridad,
@@ -56,6 +96,12 @@ export async function PATCH(request: Request) {
     }
     if (fileExtensionsFilter !== undefined) data.fileExtensionsFilter = String(fileExtensionsFilter);
     if (userWatchlist !== undefined) data.userWatchlist = String(userWatchlist);
+
+    if (!userExists) {
+      // Si es cuenta de rescate, simplemente ignoramos el guardado pero reportamos éxito.
+      console.warn("[PATCH /api/configuracion] Ignorado: usuario de rescate (no BD).");
+      return NextResponse.json({ ...getDefaultSettings(userId), ...data });
+    }
 
     const updated = await prisma.notificationSettings.upsert({
       where: { userId },

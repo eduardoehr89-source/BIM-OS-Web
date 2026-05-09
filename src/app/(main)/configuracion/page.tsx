@@ -2,6 +2,8 @@ import { ConfiguracionView } from "@/components/configuracion/ConfiguracionView"
 import { cookies } from "next/headers";
 import { verifyToken } from "@/lib/auth";
 
+export const dynamic = "force-dynamic";
+
 export default async function ConfiguracionPage() {
   const cookieStore = await cookies();
   const token = cookieStore.get("bimos_session")?.value;

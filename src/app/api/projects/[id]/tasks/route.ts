@@ -35,8 +35,12 @@ export async function GET(_req: Request, ctx: Params) {
 
 export async function POST(req: Request, ctx: Params) {
   const userId = await getCurrentUserId();
+  if (!userId) {
+    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  }
+
   const { id: projectId } = await ctx.params;
-  
+
   if (!projectId || projectId.trim() === "") {
     return NextResponse.json({ error: "El proyecto es obligatorio para crear una tarea" }, { status: 400 });
   }
