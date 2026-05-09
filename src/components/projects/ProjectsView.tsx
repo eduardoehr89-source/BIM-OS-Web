@@ -58,9 +58,13 @@ const dateField = `${field} dark:[color-scheme:dark]`;
 
 function isoDateInputValue(iso: string | null | undefined): string {
   if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toISOString().slice(0, 10);
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toISOString().slice(0, 10);
+  } catch {
+    return "";
+  }
 }
 
 type WorkspaceTab = "proyecto" | "tareas" | "cronograma" | "docs" | "adjuntos";

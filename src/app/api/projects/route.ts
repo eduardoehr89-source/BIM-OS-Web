@@ -3,7 +3,8 @@ import { revalidatePath } from "next/cache";
 import { Prisma } from "@/generated/prisma";
 import { ProjectStatus } from "@/generated/prisma";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUserId } from "@/lib/auth";
+import { getCurrentUserId, verifyToken } from "@/lib/auth";
+import { cookies } from "next/headers";
 import { requireAdminSession } from "@/lib/project-rbac";
 import { PROJECT_API_LIST_INCLUDE } from "@/lib/project-api-include";
 import {
@@ -16,9 +17,15 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
+    const cookieStore = await cookies();
+    const token = cookieStore.get("bimos_session")?.value;
+    const payload = token ? await verifyToken(token) : null;
     const userId = await getCurrentUserId();
+    
+    const isAdmin = payload?.tipo === "ADMIN";
+
     const projects = await prisma.project.findMany({
-      ...(userId
+      ...(!isAdmin && userId
         ? { 
             where: { 
               OR: [

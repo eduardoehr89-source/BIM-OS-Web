@@ -2,6 +2,8 @@ import { ProjectsView } from "@/components/projects/ProjectsView";
 import { cookies } from "next/headers";
 import { verifyToken } from "@/lib/auth";
 
+export const dynamic = "force-dynamic";
+
 export default async function ProyectosPage() {
   const cookieStore = await cookies();
   const token = cookieStore.get("bimos_session")?.value;
