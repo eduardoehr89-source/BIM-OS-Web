@@ -99,7 +99,7 @@ export async function POST(req: Request, ctx: Params) {
       const meta = readUploadMeta(file);
       const uploaded = await putProjectFileBlob(projectId, file.name, file);
       const storedPath = uploaded.pathname;
-      const storageKey = uploaded.url;
+      const storageKey = uploaded.downloadUrl;
       const size = uploaded.size > 0 ? uploaded.size : meta.size;
 
       const existing = await prisma.projectFile.findFirst({

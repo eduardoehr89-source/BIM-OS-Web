@@ -13,12 +13,14 @@ type FileWithUploads = {
   uploadEvents: { uploader: { nombre: string } | null }[];
 };
 
+const BASE = process.env.NEXT_PUBLIC_APP_URL || "";
+
 export function projectFileToRevitArchivo(file: FileWithUploads) {
   const autor = file.uploadEvents[0]?.uploader?.nombre?.trim() || "—";
   return {
     Nombre: file.originalName,
     Version: `v${file.version}`,
     Autor: autor,
-    UrlDescarga: `/api/files/${file.id}/download`,
+    UrlDescarga: `${BASE}/api/files/${file.id}/download`,
   };
 }

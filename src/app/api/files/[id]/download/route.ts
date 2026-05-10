@@ -3,7 +3,6 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserId } from "@/lib/auth";
-import { getBlobDownloadUrl } from "@/lib/blob-storage";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +18,8 @@ function isAllowedStoredPath(cwd: string, storedPath: string): boolean {
 }
 
 /**
- * Descarga: usuarios autenticados. Si hay `storageKey` (Vercel Blob), redirige 302 al enlace de descarga.
+ * Descarga: usuarios autenticados. Si hay `storageKey` (Vercel Blob), 
+ * hace proxy descargando los bytes y devolviéndolos.
  */
 export async function GET(_req: Request, ctx: Params) {
   const userId = await getCurrentUserId();
@@ -38,13 +38,35 @@ export async function GET(_req: Request, ctx: Params) {
       isDeleted: true,
     },
   });
+
   if (!file || file.isDeleted) {
     return NextResponse.json({ error: "Archivo no encontrado" }, { status: 404 });
   }
 
+  const encoded = encodeURIComponent(file.originalName);
+
   if (file.storageKey) {
-    const target = getBlobDownloadUrl(file.storageKey);
-    return NextResponse.redirect(target, 302);
+    try {
+      const response = await fetch(file.storageKey);
+      
+      if (!response.ok) {
+        return NextResponse.json(
+          { error: "Error al recuperar archivo remoto del CDN" }, 
+          { status: response.status }
+        );
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+      return new NextResponse(arrayBuffer, {
+        headers: {
+          "Content-Type": file.mimeType,
+          "Content-Disposition": `attachment; filename*=UTF-8''${encoded}`,
+        },
+      });
+    } catch (e) {
+      console.error("[GET /api/files/[id]/download] Error proxy:", e);
+      return NextResponse.json({ error: "Error interno al descargar" }, { status: 500 });
+    }
   }
 
   const cwd = process.cwd();
@@ -60,8 +82,6 @@ export async function GET(_req: Request, ctx: Params) {
   } catch {
     return NextResponse.json({ error: "Archivo no disponible en disco" }, { status: 404 });
   }
-
-  const encoded = encodeURIComponent(file.originalName);
 
   return new NextResponse(new Uint8Array(buf), {
     headers: {
