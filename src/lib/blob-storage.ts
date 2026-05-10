@@ -24,7 +24,7 @@ export async function putProjectFileBlob(
   const pathname = `projects/${projectId}/${crypto.randomUUID()}-${safe}`;
 
   const blob = await put(pathname, file, {
-    access: "public",
+    access: "private",
     addRandomSuffix: false,
     allowOverwrite: false,
     token,
