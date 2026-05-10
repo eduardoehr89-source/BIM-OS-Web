@@ -9,7 +9,7 @@ import { readProjectFileBuffer } from "@/lib/read-project-file-buffer";
 
 export const dynamic = "force-dynamic";
 
-const GEMINI_MODEL = "gemini-1.5-pro-latest";
+const GEMINI_MODEL = "gemini-1.5-pro";
 
 type Params = { params: Promise<{ id: string }> };
 
