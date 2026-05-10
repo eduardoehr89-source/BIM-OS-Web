@@ -10,9 +10,7 @@ import { readProjectFileBuffer } from "@/lib/read-project-file-buffer";
 
 export const dynamic = "force-dynamic";
 
-const GEMINI_MODEL_PRIMARY = "gemini-1.5-flash-latest";
-const GEMINI_MODEL_FALLBACK = "gemini-pro";
-const GEMINI_API_VERSION = "v1beta" as const;
+const GEMINI_MODEL = "gemini-1.5-flash";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -20,50 +18,6 @@ function extractMermaidBlock(raw: string): string {
   const match = raw.match(/```mermaid\s*([\s\S]*?)```/i);
   if (match) return match[1].trim();
   return raw.replace(/```mermaid/gi, "").replace(/```/g, "").trim();
-}
-
-function shouldRetryWithFallbackModel(e: unknown): boolean {
-  const status =
-    e && typeof e === "object" && "status" in e && typeof (e as { status: unknown }).status === "number"
-      ? (e as { status: number }).status
-      : undefined;
-  if (status === 404 || status === 400) return true;
-  const msg = e instanceof Error ? e.message : String(e);
-  const lower = msg.toLowerCase();
-  return (
-    lower.includes("404") ||
-    lower.includes("not found") ||
-    lower.includes("not_found") ||
-    lower.includes("invalid model") ||
-    lower.includes("unknown model") ||
-    lower.includes("model not found")
-  );
-}
-
-async function generateWithGeminiModel(
-  apiKey: string,
-  modelName: string,
-  mime: string,
-  buffer: Buffer,
-  fileName: string,
-  prompt: string,
-): Promise<string> {
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: modelName }, { apiVersion: GEMINI_API_VERSION });
-
-  if (mime === "application/pdf" || mime === "application/x-pdf") {
-    const result = await model.generateContent([
-      { text: prompt },
-      { inlineData: { mimeType: "application/pdf", data: buffer.toString("base64") } },
-    ]);
-    return result.response.text();
-  }
-
-  const textBody = buffer.toString("utf8");
-  const result = await model.generateContent(
-    `${prompt}\n\n--- Contenido del documento (${fileName}) ---\n\n${textBody}`,
-  );
-  return result.response.text();
 }
 
 export async function POST(req: Request, ctx: Params) {
@@ -121,7 +75,7 @@ export async function POST(req: Request, ctx: Params) {
   }
 
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
+  if (!apiKey?.trim()) {
     return NextResponse.json({ error: "GEMINI_API_KEY no configurada" }, { status: 500 });
   }
 
@@ -131,38 +85,28 @@ export async function POST(req: Request, ctx: Params) {
       ? `${basePrompt}\n\n${BEP_DIAGRAM_MODE_SUFFIX}\n\nTu salida principal debe ser un bloque \`\`\`mermaid que contenga un diagrama graph TD (salvo que otro tipo sea más adecuado) según el BEP.`
       : basePrompt;
 
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+
   try {
     const mime = (file.mimeType || "").toLowerCase();
     let responseText: string;
-    let usedModel = GEMINI_MODEL_PRIMARY;
 
-    try {
-      responseText = await generateWithGeminiModel(
-        apiKey,
-        GEMINI_MODEL_PRIMARY,
-        mime,
-        buffer,
-        file.originalName,
-        prompt,
+    if (mime === "application/pdf" || mime === "application/x-pdf") {
+      const result = await model.generateContent([
+        { text: prompt },
+        { inlineData: { mimeType: "application/pdf", data: buffer.toString("base64") } },
+      ]);
+      responseText = result.response.text();
+    } else {
+      const textBody = buffer.toString("utf8");
+      const result = await model.generateContent(
+        `${prompt}\n\n--- Contenido del documento (${file.originalName}) ---\n\n${textBody}`,
       );
-    } catch (first: unknown) {
-      if (!shouldRetryWithFallbackModel(first)) throw first;
-      console.warn(
-        `[POST /api/projects/[id]/analyze] ${GEMINI_MODEL_PRIMARY} falló; reintentando con ${GEMINI_MODEL_FALLBACK}:`,
-        first,
-      );
-      responseText = await generateWithGeminiModel(
-        apiKey,
-        GEMINI_MODEL_FALLBACK,
-        mime,
-        buffer,
-        file.originalName,
-        prompt,
-      );
-      usedModel = GEMINI_MODEL_FALLBACK;
+      responseText = result.response.text();
     }
 
-    console.log(`[POST /api/projects/[id]/analyze] OK modelo=${usedModel} api=${GEMINI_API_VERSION}`);
+    console.log(`[POST /api/projects/[id]/analyze] OK modelo=${GEMINI_MODEL}`);
 
     if (mode === "mermaid") {
       return NextResponse.json({
@@ -177,10 +121,7 @@ export async function POST(req: Request, ctx: Params) {
       markdown: responseText,
     });
   } catch (e: unknown) {
-    console.error(
-      `[POST /api/projects/[id]/analyze] Error tras ${GEMINI_MODEL_PRIMARY} y posible ${GEMINI_MODEL_FALLBACK} (API ${GEMINI_API_VERSION}):`,
-      e,
-    );
+    console.error(`[POST /api/projects/[id]/analyze] Error modelo=${GEMINI_MODEL}:`, e);
     logGeminiModelsOnFailure(apiKey, "POST /api/projects/[id]/analyze");
     const msg = e instanceof Error ? e.message : "Error al analizar con IA";
     return NextResponse.json({ error: msg }, { status: 500 });
