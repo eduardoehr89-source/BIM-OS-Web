@@ -6,17 +6,11 @@ import { parseIsoAttachmentContainer } from "@/lib/iso-attachments";
 import { parseTechnicalDocType } from "@/lib/project-enums";
 import { assertAllowedExtension } from "@/lib/storage";
 import { canUserAccessProjectFiles } from "@/lib/project-file-upload-access";
+import { deleteBlobByUrl, isBlobConfigured, putProjectFileBlob } from "@/lib/blob-storage";
 
 export const dynamic = "force-dynamic";
 
 type Params = { params: Promise<{ id: string }> };
-
-/** Sin almacenamiento en disco (Vercel serverless): ruta lógica única para Prisma. */
-function virtualStoredPath(projectId: string, originalName: string): string {
-  const base = originalName.replace(/^.*[/\\]/, "");
-  const safe = base.replace(/[^\w.\-\u00C0-\u024f]+/g, "_") || "file";
-  return `vercel-metadata-only/${projectId}/${crypto.randomUUID()}-${safe}`;
-}
 
 function readUploadMeta(file: File): { size: number; mimeType: string } {
   assertAllowedExtension(file.name);
@@ -42,6 +36,13 @@ export async function POST(req: Request, ctx: Params) {
 
   if (!allowed) {
     return NextResponse.json({ error: "Sin acceso a este proyecto" }, { status: 403 });
+  }
+
+  if (!isBlobConfigured()) {
+    return NextResponse.json(
+      { error: "Almacenamiento no disponible: configura BLOB_READ_WRITE_TOKEN en el entorno" },
+      { status: 503 },
+    );
   }
 
   let formData: FormData;
@@ -96,7 +97,10 @@ export async function POST(req: Request, ctx: Params) {
   try {
     for (const file of validFiles) {
       const meta = readUploadMeta(file);
-      const storedPath = virtualStoredPath(projectId, file.name);
+      const uploaded = await putProjectFileBlob(projectId, file.name, file);
+      const storedPath = uploaded.pathname;
+      const storageKey = uploaded.url;
+      const size = uploaded.size > 0 ? uploaded.size : meta.size;
 
       const existing = await prisma.projectFile.findFirst({
         where: { projectId, originalName: file.name, isDeleted: false },
@@ -107,14 +111,18 @@ export async function POST(req: Request, ctx: Params) {
             where: { projectId, originalName: file.name, isDeleted: true },
           });
 
+      if (trashedSameName?.storageKey) await deleteBlobByUrl(trashedSameName.storageKey);
+      if (existing?.storageKey) await deleteBlobByUrl(existing.storageKey);
+
       let row;
       if (trashedSameName) {
         row = await prisma.projectFile.update({
           where: { id: trashedSameName.id },
           data: {
             storedPath,
+            storageKey,
             mimeType: meta.mimeType,
-            size: meta.size,
+            size,
             technicalDocType: technicalDocType ?? undefined,
             version: (trashedSameName.version || 1) + 1,
             uploadedAt: new Date(),
@@ -128,8 +136,9 @@ export async function POST(req: Request, ctx: Params) {
           where: { id: existing.id },
           data: {
             storedPath,
+            storageKey,
             mimeType: meta.mimeType,
-            size: meta.size,
+            size,
             technicalDocType: technicalDocType ?? undefined,
             version: (existing.version || 1) + 1,
             uploadedAt: new Date(),
@@ -141,8 +150,9 @@ export async function POST(req: Request, ctx: Params) {
             projectId,
             originalName: file.name,
             storedPath,
+            storageKey,
             mimeType: meta.mimeType,
-            size: meta.size,
+            size,
             technicalDocType: technicalDocType ?? undefined,
           },
         });

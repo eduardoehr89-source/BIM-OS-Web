@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserId } from "@/lib/auth";
+import { getBlobDownloadUrl } from "@/lib/blob-storage";
 
 export const dynamic = "force-dynamic";
 
@@ -18,8 +19,7 @@ function isAllowedStoredPath(cwd: string, storedPath: string): boolean {
 }
 
 /**
- * Descarga de adjuntos: basta con sesión válida (cualquier usuario autenticado).
- * La ruta en disco debe estar bajo `storage/uploads` o ser placeholder serverless.
+ * Descarga: usuarios autenticados. Si hay `storageKey` (Vercel Blob), redirige 302 al enlace de descarga.
  */
 export async function GET(_req: Request, ctx: Params) {
   const userId = await getCurrentUserId();
@@ -28,10 +28,23 @@ export async function GET(_req: Request, ctx: Params) {
   const { id } = await ctx.params;
   const file = await prisma.projectFile.findUnique({
     where: { id },
-    select: { id: true, projectId: true, originalName: true, mimeType: true, storedPath: true, isDeleted: true },
+    select: {
+      id: true,
+      projectId: true,
+      originalName: true,
+      mimeType: true,
+      storedPath: true,
+      storageKey: true,
+      isDeleted: true,
+    },
   });
   if (!file || file.isDeleted) {
     return NextResponse.json({ error: "Archivo no encontrado" }, { status: 404 });
+  }
+
+  if (file.storageKey) {
+    const target = getBlobDownloadUrl(file.storageKey);
+    return NextResponse.redirect(target, 302);
   }
 
   const cwd = process.cwd();

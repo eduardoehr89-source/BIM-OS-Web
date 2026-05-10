@@ -220,6 +220,8 @@ model ProjectFile {
   project          Project?          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   originalName     String
   storedPath       String            @unique
+  /// URL del objeto en Vercel Blob (descarga vía redirect). Nulo en archivos solo locales antiguos.
+  storageKey       String?
   mimeType         String
   size             Int
   technicalDocType TechnicalDocType?
