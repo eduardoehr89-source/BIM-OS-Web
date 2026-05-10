@@ -6,7 +6,7 @@ import { logGeminiModelsOnFailure } from "@/lib/gemini-list-models";
 export const dynamic = "force-dynamic";
 
 const GEMINI_MODEL = "gemini-1.5-flash";
-const GEMINI_API_VERSION = "v1" as const;
+const GEMINI_API_VERSION = "v1beta" as const;
 
 export async function POST(req: Request) {
   let userId = await getCurrentUserId();

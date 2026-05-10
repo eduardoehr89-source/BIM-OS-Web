@@ -10,11 +10,11 @@ import { readProjectFileBuffer } from "@/lib/read-project-file-buffer";
 
 export const dynamic = "force-dynamic";
 
-/** Preferido en producción (v1); si falla, revisar logs de modelos listados. */
+/** Modelo estable para generateContent en la mayoría de claves/regiones. */
 const GEMINI_MODEL = "gemini-1.5-flash";
 
-/** v1 suele exponer nombres estables; v1beta puede devolver 404 en algunos modelos según clave/región. */
-const GEMINI_API_VERSION = "v1" as const;
+/** v1beta: máxima compatibilidad con el SDK para generateContent (evita 404 en algunos despliegues con v1). */
+const GEMINI_API_VERSION = "v1beta" as const;
 
 type Params = { params: Promise<{ id: string }> };
 
