@@ -9,7 +9,7 @@ import { readProjectFileBuffer } from "@/lib/read-project-file-buffer";
 
 export const dynamic = "force-dynamic";
 
-const GEMINI_MODEL = "gemini-1.5-pro";
+const GEMINI_MODEL = "gemini-1.5-flash";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -118,7 +118,9 @@ export async function POST(req: Request, ctx: Params) {
       markdown: responseText,
     });
   } catch (e: unknown) {
-    console.error("[POST /api/projects/[id]/analyze]", e);
+    console.error(`[POST /api/projects/[id]/analyze] Error usando modelo ${GEMINI_MODEL}:`, e);
+    // Tip: GoogleGenerativeAI falla con 404 si el modelo no existe en el endpoint llamado o si la key no tiene acceso.
+    // console.log("Modelos sugeridos si 404 persiste: 'gemini-1.5-flash', 'gemini-1.5-pro', o verificar endpoint v1 vs v1beta.");
     const msg = e instanceof Error ? e.message : "Error al analizar con IA";
     return NextResponse.json({ error: msg }, { status: 500 });
   }

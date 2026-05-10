@@ -25,7 +25,7 @@ export async function POST(req: Request) {
   }
 
   const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
   try {
     const body = await req.json();
@@ -75,7 +75,8 @@ ${text}
       return NextResponse.json({ error: "Acción no válida. Usa 'audit' o 'mermaid'." }, { status: 400 });
     }
   } catch (error: unknown) {
-    console.error("[POST /api/ai/bep-process]", error);
+    console.error("[POST /api/ai/bep-process] Error usando modelo gemini-1.5-flash:", error);
+    // console.log("Modelos sugeridos si 404 persiste: 'gemini-1.5-flash', 'gemini-1.5-pro', o verificar endpoint v1 vs v1beta.");
     if (error instanceof Error) {
       return NextResponse.json({ error: error.message || "Error al procesar la solicitud" }, { status: 500 });
     }
