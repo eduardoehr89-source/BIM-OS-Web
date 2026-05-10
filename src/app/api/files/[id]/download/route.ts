@@ -3,10 +3,24 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserId } from "@/lib/auth";
-import { userCanAccessStoredFile } from "@/lib/file-access";
+
+export const dynamic = "force-dynamic";
 
 type Params = { params: Promise<{ id: string }> };
 
+function isAllowedStoredPath(cwd: string, storedPath: string): boolean {
+  const normalized = storedPath.replace(/\\/g, "/");
+  const absolute = path.resolve(cwd, storedPath);
+  const uploadsRoot = path.resolve(cwd, "storage", "uploads");
+  if (absolute.startsWith(uploadsRoot)) return true;
+  if (normalized.startsWith("vercel-metadata-only/")) return true;
+  return false;
+}
+
+/**
+ * Descarga de adjuntos: basta con sesión válida (cualquier usuario autenticado).
+ * La ruta en disco debe estar bajo `storage/uploads` o ser placeholder serverless.
+ */
 export async function GET(_req: Request, ctx: Params) {
   const userId = await getCurrentUserId();
   if (!userId) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
@@ -20,16 +34,12 @@ export async function GET(_req: Request, ctx: Params) {
     return NextResponse.json({ error: "Archivo no encontrado" }, { status: 404 });
   }
 
-  const member = await prisma.user.findUnique({ where: { id: userId }, select: { tipo: true } });
-  const isAdmin = member?.tipo === "ADMIN";
-  const allowed = await userCanAccessStoredFile(userId, isAdmin, file);
-  if (!allowed) return NextResponse.json({ error: "Sin acceso" }, { status: 403 });
-
-  const absolute = path.resolve(process.cwd(), file.storedPath);
-  const root = path.resolve(process.cwd(), "storage", "uploads");
-  if (!absolute.startsWith(root)) {
+  const cwd = process.cwd();
+  if (!isAllowedStoredPath(cwd, file.storedPath)) {
     return NextResponse.json({ error: "Ruta inválida" }, { status: 400 });
   }
+
+  const absolute = path.resolve(cwd, file.storedPath);
 
   let buf: Buffer;
   try {
