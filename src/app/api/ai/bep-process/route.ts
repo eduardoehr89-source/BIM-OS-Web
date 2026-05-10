@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { getCurrentUserId, verifyToken } from "@/lib/auth";
+import { logGeminiModelsOnFailure } from "@/lib/gemini-list-models";
 
 export const dynamic = "force-dynamic";
+
+const GEMINI_MODEL = "gemini-1.5-flash";
+const GEMINI_API_VERSION = "v1" as const;
 
 export async function POST(req: Request) {
   let userId = await getCurrentUserId();
@@ -25,7 +29,7 @@ export async function POST(req: Request) {
   }
 
   const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL }, { apiVersion: GEMINI_API_VERSION });
 
   try {
     const body = await req.json();
@@ -75,8 +79,8 @@ ${text}
       return NextResponse.json({ error: "Acción no válida. Usa 'audit' o 'mermaid'." }, { status: 400 });
     }
   } catch (error: unknown) {
-    console.error("[POST /api/ai/bep-process] Error usando modelo gemini-1.5-flash:", error);
-    // console.log("Modelos sugeridos si 404 persiste: 'gemini-1.5-flash', 'gemini-1.5-pro', o verificar endpoint v1 vs v1beta.");
+    console.error(`[POST /api/ai/bep-process] Error modelo ${GEMINI_MODEL} (API ${GEMINI_API_VERSION}):`, error);
+    logGeminiModelsOnFailure(apiKey, "POST /api/ai/bep-process");
     if (error instanceof Error) {
       return NextResponse.json({ error: error.message || "Error al procesar la solicitud" }, { status: 500 });
     }

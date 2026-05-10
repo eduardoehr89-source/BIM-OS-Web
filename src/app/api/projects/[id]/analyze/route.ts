@@ -3,13 +3,18 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { verifyToken } from "@/lib/auth";
 import { BEP_ANALYSIS_PROMPT, BEP_DIAGRAM_MODE_SUFFIX } from "@/lib/ai-prompts";
 import { getAuthPayload } from "@/lib/comunicaciones-auth";
+import { logGeminiModelsOnFailure } from "@/lib/gemini-list-models";
 import { prisma } from "@/lib/prisma";
 import { canUserAccessProjectFiles } from "@/lib/project-file-upload-access";
 import { readProjectFileBuffer } from "@/lib/read-project-file-buffer";
 
 export const dynamic = "force-dynamic";
 
+/** Preferido en producción (v1); si falla, revisar logs de modelos listados. */
 const GEMINI_MODEL = "gemini-1.5-flash";
+
+/** v1 suele exponer nombres estables; v1beta puede devolver 404 en algunos modelos según clave/región. */
+const GEMINI_API_VERSION = "v1" as const;
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -79,7 +84,7 @@ export async function POST(req: Request, ctx: Params) {
   }
 
   const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL }, { apiVersion: GEMINI_API_VERSION });
 
   const basePrompt = `${BEP_ANALYSIS_PROMPT}\n\nAplica las reglas anteriores al documento que se adjunta en este mensaje.`;
   const prompt =
@@ -118,9 +123,8 @@ export async function POST(req: Request, ctx: Params) {
       markdown: responseText,
     });
   } catch (e: unknown) {
-    console.error(`[POST /api/projects/[id]/analyze] Error usando modelo ${GEMINI_MODEL}:`, e);
-    // Tip: GoogleGenerativeAI falla con 404 si el modelo no existe en el endpoint llamado o si la key no tiene acceso.
-    // console.log("Modelos sugeridos si 404 persiste: 'gemini-1.5-flash', 'gemini-1.5-pro', o verificar endpoint v1 vs v1beta.");
+    console.error(`[POST /api/projects/[id]/analyze] Error usando modelo ${GEMINI_MODEL} (API ${GEMINI_API_VERSION}):`, e);
+    logGeminiModelsOnFailure(apiKey, "POST /api/projects/[id]/analyze");
     const msg = e instanceof Error ? e.message : "Error al analizar con IA";
     return NextResponse.json({ error: msg }, { status: 500 });
   }
