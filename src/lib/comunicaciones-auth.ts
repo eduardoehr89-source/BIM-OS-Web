@@ -9,8 +9,14 @@ export async function getAuthPayload() {
   return verifyToken(token);
 }
 
+/** Claims mínimos para rol admin (JWT o filas Prisma donde `tipo` es string). */
+export type AdminRoleClaims = {
+  tipo?: string | null;
+  isSupremo?: boolean | null;
+};
+
 /** Admin de sistema o Admin Supremo: ve todos los canales grupales y permisos de gestión. */
-export function isAdminUser(p: Pick<AuthPayload, "tipo" | "isSupremo"> | null): boolean {
+export function isAdminUser(p: AdminRoleClaims | null): boolean {
   if (!p) return false;
   return p.tipo === "ADMIN" || p.isSupremo === true;
 }
