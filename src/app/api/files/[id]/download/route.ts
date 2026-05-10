@@ -47,7 +47,7 @@ export async function GET(_req: Request, ctx: Params) {
 
   if (file.storageKey) {
     try {
-      const response = await fetch(file.storageKey);
+      const response = await fetch(file.storageKey, { headers: { Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}` } });
       
       if (!response.ok) {
         return NextResponse.json(
