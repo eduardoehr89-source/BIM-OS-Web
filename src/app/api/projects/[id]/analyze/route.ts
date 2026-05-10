@@ -10,7 +10,8 @@ import { readProjectFileBuffer } from "@/lib/read-project-file-buffer";
 
 export const dynamic = "force-dynamic";
 
-const GEMINI_MODEL = "gemini-2.0-flash";
+// ✅ FIX: Modelo actualizado según logs de Vercel
+const GEMINI_MODEL = "gemini-2.5-flash";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -21,7 +22,7 @@ function extractMermaidBlock(raw: string): string {
 }
 
 export async function POST(req: Request, ctx: Params) {
-  console.log("Iniciando análisis con Gemini...");
+  console.log(`[analyze] Iniciando análisis con ${GEMINI_MODEL}...`);
 
   const { id: projectId } = await ctx.params;
 
@@ -35,14 +36,10 @@ export async function POST(req: Request, ctx: Params) {
     }
   }
 
-  if (!userId) {
-    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-  }
+  if (!userId) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
 
   const allowed = await canUserAccessProjectFiles(projectId, userId, auth);
-  if (!allowed) {
-    return NextResponse.json({ error: "Sin acceso a este proyecto" }, { status: 403 });
-  }
+  if (!allowed) return NextResponse.json({ error: "Sin acceso a este proyecto" }, { status: 403 });
 
   let body: { fileId?: unknown; mode?: unknown };
   try {
@@ -67,9 +64,7 @@ export async function POST(req: Request, ctx: Params) {
     select: { storedPath: true, storageKey: true, mimeType: true, originalName: true },
   });
 
-  if (!file) {
-    return NextResponse.json({ error: "Archivo no encontrado" }, { status: 404 });
-  }
+  if (!file) return NextResponse.json({ error: "Archivo no encontrado" }, { status: 404 });
 
   const buffer = await readProjectFileBuffer(file);
   if (!buffer?.length) {
@@ -81,10 +76,10 @@ export async function POST(req: Request, ctx: Params) {
     return NextResponse.json({ error: "GEMINI_API_KEY no configurada" }, { status: 500 });
   }
 
-  const basePrompt = `${BEP_ANALYSIS_PROMPT}\n\nAplica las reglas anteriores al documento que se adjunta en este mensaje.`;
+  const basePrompt = `${BEP_ANALYSIS_PROMPT}\n\nAplica las reglas anteriores al documento adjunto.`;
   const prompt =
     mode === "mermaid"
-      ? `${basePrompt}\n\n${BEP_DIAGRAM_MODE_SUFFIX}\n\nTu salida principal debe ser un bloque \`\`\`mermaid que contenga un diagrama graph TD (salvo que otro tipo sea más adecuado) según el BEP.`
+      ? `${basePrompt}\n\n${BEP_DIAGRAM_MODE_SUFFIX}\n\nTu salida principal debe ser un bloque \`\`\`mermaid con un diagrama graph TD según el BEP.`
       : basePrompt;
 
   const genAI = new GoogleGenerativeAI(apiKey);
@@ -101,14 +96,13 @@ export async function POST(req: Request, ctx: Params) {
       ]);
       responseText = result.response.text();
     } else {
-      const textBody = buffer.toString("utf8");
       const result = await model.generateContent(
-        `${prompt}\n\n--- Contenido del documento (${file.originalName}) ---\n\n${textBody}`,
+        `${prompt}\n\n--- Contenido del documento (${file.originalName}) ---\n\n${buffer.toString("utf8")}`,
       );
       responseText = result.response.text();
     }
 
-    console.log(`[POST /api/projects/[id]/analyze] OK modelo=${GEMINI_MODEL}`);
+    console.log(`[analyze] OK modelo=${GEMINI_MODEL}`);
 
     if (mode === "mermaid") {
       return NextResponse.json({
@@ -118,25 +112,16 @@ export async function POST(req: Request, ctx: Params) {
       });
     }
 
-    return NextResponse.json({
-      mode: "analysis",
-      markdown: responseText,
-    });
+    return NextResponse.json({ mode: "analysis", markdown: responseText });
   } catch (e: unknown) {
-    console.error(`[POST /api/projects/[id]/analyze] Error modelo=${GEMINI_MODEL}:`, e);
+    console.error(`[analyze] Error modelo=${GEMINI_MODEL}:`, e);
+
     try {
-      const listModelsFn = (genAI as unknown as { listModels?: () => Promise<unknown> }).listModels;
-      if (typeof listModelsFn === "function") {
-        console.log("[analyze] await genAI.listModels():", await listModelsFn.call(genAI));
-      } else {
-        console.log(
-          "[analyze] await genAI.listModels(): no existe en @google/generative-ai; listado equivalente (REST):",
-          await fetchGeminiModelNames(apiKey),
-        );
-      }
+      console.log("[analyze] Modelos disponibles:", await fetchGeminiModelNames(apiKey));
     } catch (listErr) {
-      console.log("[analyze] Error al obtener listado de modelos:", listErr);
+      console.log("[analyze] Error al listar modelos:", listErr);
     }
+
     const msg = e instanceof Error ? e.message : "Error al analizar con IA";
     return NextResponse.json({ error: msg }, { status: 500 });
   }
