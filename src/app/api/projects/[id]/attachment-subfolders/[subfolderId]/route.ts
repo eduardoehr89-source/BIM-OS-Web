@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUserId } from "@/lib/auth";
+import { getAuthPayload } from "@/lib/comunicaciones-auth";
 import {
   canUserAccessProjectFiles,
   canUserManageAttachmentSubfolders,
@@ -10,13 +10,14 @@ type Params = { params: Promise<{ id: string; subfolderId: string }> };
 
 export async function DELETE(_req: Request, ctx: Params) {
   const { id: projectId, subfolderId } = await ctx.params;
-  const userId = await getCurrentUserId();
+  const auth = await getAuthPayload();
+  const userId = auth?.id;
   if (!userId) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
 
   const [hasAccess, canFolders] = await Promise.all([
-    canUserAccessProjectFiles(projectId, userId),
+    canUserAccessProjectFiles(projectId, userId, auth),
     canUserManageAttachmentSubfolders(userId),
   ]);
   if (!hasAccess) {

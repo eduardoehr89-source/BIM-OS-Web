@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUserId } from "@/lib/auth";
+import { getAuthPayload } from "@/lib/comunicaciones-auth";
 import { parseIsoAttachmentContainer } from "@/lib/iso-attachments";
 import {
   canUserAccessProjectFiles,
@@ -15,13 +15,14 @@ function normalizeSubfolderName(raw: string): string {
 
 export async function POST(req: Request, ctx: Params) {
   const { id: projectId } = await ctx.params;
-  const userId = await getCurrentUserId();
+  const auth = await getAuthPayload();
+  const userId = auth?.id;
   if (!userId) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
 
   const [hasAccess, canFolders] = await Promise.all([
-    canUserAccessProjectFiles(projectId, userId),
+    canUserAccessProjectFiles(projectId, userId, auth),
     canUserManageAttachmentSubfolders(userId),
   ]);
   if (!hasAccess) {

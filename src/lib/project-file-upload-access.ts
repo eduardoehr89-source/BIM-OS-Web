@@ -1,27 +1,58 @@
+import type { AuthPayload } from "@/lib/auth";
+import { isAdminUser } from "@/lib/comunicaciones-auth";
 import { prisma } from "@/lib/prisma";
 
-/** Misma regla que POST /api/projects/[id]/files: admin, dueño o compartido explícito. */
-export async function canUserAccessProjectFiles(projectId: string, userId: string): Promise<boolean> {
-  const member = await prisma.user.findUnique({ where: { id: userId }, select: { tipo: true } });
-  if (member?.tipo === "ADMIN") return true;
-  const project = await prisma.project.findUnique({
-    where: { id: projectId },
-    select: {
-      ownerId: true,
-      sharedWith: { where: { id: userId }, select: { id: true } },
-    },
+type AdminBypassClaims = Pick<AuthPayload, "tipo" | "isSupremo">;
+
+/**
+ * Para usuarios que no son administradores (JWT/BD): misma visibilidad que `GET /api/projects`
+ * (dueño, compartido explícito, o asignación de tarea aceptada).
+ *
+ * Administrador de sistema y Admin Supremo hacen bypass inmediato (sin dueños ni tareas).
+ */
+export async function canUserAccessProjectFiles(
+  projectId: string,
+  userId: string,
+  session?: AdminBypassClaims | null,
+): Promise<boolean> {
+  if (isAdminUser(session ?? null)) {
+    return true;
+  }
+
+  const member = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { tipo: true, isSupremo: true },
   });
-  if (!project) return false;
-  if (project.ownerId === userId) return true;
-  return project.sharedWith.length > 0;
+  if (isAdminUser(member)) {
+    return true;
+  }
+
+  const project = await prisma.project.findFirst({
+    where: {
+      id: projectId,
+      OR: [
+        { ownerId: userId },
+        { sharedWith: { some: { id: userId } } },
+        {
+          tasks: {
+            some: {
+              assignments: { some: { userId, isAccepted: true } },
+            },
+          },
+        },
+      ],
+    },
+    select: { id: true },
+  });
+  return project !== null;
 }
 
-/** ADMIN siempre puede; USER solo si canManageFolders en BD. */
+/** ADMIN / Admin Supremo siempre pueden; USER solo si canManageFolders en BD. */
 export async function canUserManageAttachmentSubfolders(userId: string): Promise<boolean> {
   const u = await prisma.user.findUnique({
     where: { id: userId },
-    select: { tipo: true, canManageFolders: true },
+    select: { tipo: true, isSupremo: true, canManageFolders: true },
   });
   if (!u) return false;
-  return u.tipo === "ADMIN" || u.canManageFolders;
+  return isAdminUser(u) || u.canManageFolders;
 }

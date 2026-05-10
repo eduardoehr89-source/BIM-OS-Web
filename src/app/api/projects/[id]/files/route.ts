@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { ProjectStatus, TechnicalDocType } from "@/generated/prisma";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUserId } from "@/lib/auth";
+import { verifyToken } from "@/lib/auth";
+import { getAuthPayload } from "@/lib/comunicaciones-auth";
 import { parseIsoAttachmentContainer } from "@/lib/iso-attachments";
 import { parseTechnicalDocType } from "@/lib/project-enums";
 import { assertAllowedExtension } from "@/lib/storage";
@@ -27,12 +28,21 @@ export async function POST(req: Request, ctx: Params) {
     return NextResponse.json({ error: "Proyecto no encontrado" }, { status: 404 });
   }
 
-  const userId = await getCurrentUserId();
+  let auth = await getAuthPayload();
+  let userId = auth?.id ?? null;
+  if (!userId) {
+    const authHeader = req.headers.get("authorization");
+    if (authHeader?.startsWith("Bearer ")) {
+      auth = await verifyToken(authHeader.split(" ")[1]);
+      userId = auth?.id ?? null;
+    }
+  }
+
   if (!userId) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
 
-  const allowed = await canUserAccessProjectFiles(projectId, userId);
+  const allowed = await canUserAccessProjectFiles(projectId, userId, auth);
 
   if (!allowed) {
     return NextResponse.json({ error: "Sin acceso a este proyecto" }, { status: 403 });
@@ -90,8 +100,6 @@ export async function POST(req: Request, ctx: Params) {
       resolvedSubfolderId = sf.id;
     }
   }
-
-  const uploaderId = await getCurrentUserId();
 
   const created = [];
   try {
@@ -176,7 +184,7 @@ export async function POST(req: Request, ctx: Params) {
         data: {
           projectId,
           projectFileId: row.id,
-          uploaderId: uploaderId ?? null,
+          uploaderId: userId,
           originalName: row.originalName,
         },
       });

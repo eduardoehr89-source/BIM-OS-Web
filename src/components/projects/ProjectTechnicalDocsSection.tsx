@@ -1,11 +1,74 @@
 "use client";
 
 import { FileText, Trash2 } from "lucide-react";
-import { memo, useState } from "react";
+import { memo, useState, useEffect, useRef } from "react";
+import mermaid from "mermaid";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { NIP_DIGITS } from "@/lib/nip-validation";
 import { TECH_DOC_OPTIONS, labelTechnicalDocType } from "@/lib/project-enums";
 import { TECHNICAL_UPLOAD_ACCEPT } from "@/lib/technical-upload-constants";
+
+function MermaidViewer({ code, onClose }: { code: string, onClose: () => void }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  
+  useEffect(() => {
+    mermaid.initialize({ startOnLoad: false, theme: 'default' });
+    if (containerRef.current && code) {
+      mermaid.render("mermaid-diagram", code).then((result) => {
+        if (containerRef.current) {
+          containerRef.current.innerHTML = result.svg;
+        }
+      }).catch(e => {
+        if (containerRef.current) {
+          containerRef.current.innerText = "Error renderizando diagrama: " + e.message;
+        }
+      });
+    }
+  }, [code]);
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-background max-h-full max-w-4xl overflow-auto rounded-xl p-6 shadow-xl w-full">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-bold">Diagrama Mermaid</h2>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">Cerrar</button>
+        </div>
+        <div ref={containerRef} className="flex justify-center" />
+      </div>
+    </div>
+  );
+}
+
+function AuditViewer({ result, onClose }: { result: { errores?: string[]; oportunidades?: string[]; sugerencia?: string }, onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-background max-h-full max-w-2xl overflow-auto rounded-xl p-6 shadow-xl w-full">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-bold">Análisis IA (BEP)</h2>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">Cerrar</button>
+        </div>
+        <div className="space-y-4">
+          <div>
+            <h3 className="font-semibold text-red-500 mb-2">Errores</h3>
+            <ul className="list-disc pl-5 text-sm text-muted-foreground">
+              {result.errores?.map((e: string, i: number) => <li key={i}>{e}</li>)}
+            </ul>
+          </div>
+          <div>
+            <h3 className="font-semibold text-green-500 mb-2">Oportunidades</h3>
+            <ul className="list-disc pl-5 text-sm text-muted-foreground">
+              {result.oportunidades?.map((o: string, i: number) => <li key={i}>{o}</li>)}
+            </ul>
+          </div>
+          <div>
+            <h3 className="font-semibold text-blue-500 mb-2">Sugerencia General</h3>
+            <p className="text-sm text-muted-foreground">{result.sugerencia}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 type FileWithTech = {
   id: string;
@@ -44,8 +107,47 @@ function ProjectTechnicalDocsSectionInner({
   const [isoNum, setIsoNum] = useState("");
   const [trashDocId, setTrashDocId] = useState<string | null>(null);
 
+  const [auditResult, setAuditResult] = useState<{ errores?: string[]; oportunidades?: string[]; sugerencia?: string } | null>(null);
+  const [mermaidCode, setMermaidCode] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState<string | null>(null);
+
   const generatedIso = `${isoProy}-${isoOrg}-${isoVol}-${isoNiv}-${isoTipo}-${isoRol}-${isoNum}`.toUpperCase();
   const isIsoValid = isoProy.length > 0 && isoOrg.length > 0 && isoVol.length > 0 && isoNiv.length > 0 && isoTipo.length > 0 && isoRol.length > 0 && isoNum.length > 0;
+
+  async function handleAIAction(fileId: string, action: "audit" | "mermaid") {
+    setAiLoading(fileId);
+    try {
+      const textRes = await fetch(`/api/files/${fileId}/download`);
+      if (!textRes.ok) throw new Error("No se pudo descargar el archivo para análisis.");
+      const text = await textRes.text();
+
+      const aiRes = await fetch("/api/ai/bep-process", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, text })
+      });
+      if (!aiRes.ok) {
+         const err = await aiRes.json().catch(() => ({}));
+         throw new Error(err.error || "Error en IA");
+      }
+      
+      if (action === "audit") {
+        const json = await aiRes.json();
+        setAuditResult(json);
+      } else {
+        const code = await aiRes.text();
+        setMermaidCode(code);
+      }
+    } catch (e: unknown) {
+      if (e instanceof Error) {
+        onError?.(e.message);
+      } else {
+        onError?.("Error en IA");
+      }
+    } finally {
+      setAiLoading(null);
+    }
+  }
 
   async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const list = e.target.files;
@@ -204,6 +306,26 @@ function ProjectTechnicalDocsSectionInner({
                     <td className="px-4 py-3 text-muted-foreground">{ext}</td>
                     <td className="px-4 py-3 tabular-nums text-muted-foreground">{dateStr}</td>
                     <td className="px-4 py-3 text-right">
+                      {f.technicalDocType === "BEP" && (
+                        <>
+                          <button 
+                             type="button" 
+                             className="mr-3 text-xs font-medium text-blue-500 hover:underline disabled:opacity-50"
+                             onClick={() => handleAIAction(f.id, "audit")}
+                             disabled={aiLoading === f.id}
+                          >
+                            {aiLoading === f.id ? "Cargando..." : "Análisis IA"}
+                          </button>
+                          <button 
+                             type="button" 
+                             className="mr-3 text-xs font-medium text-green-500 hover:underline disabled:opacity-50"
+                             onClick={() => handleAIAction(f.id, "mermaid")}
+                             disabled={aiLoading === f.id}
+                          >
+                            Diagrama Mermaid
+                          </button>
+                        </>
+                      )}
                       <a href={`/api/files/${f.id}/download`} className="mr-3 text-xs font-medium text-accent underline-offset-4 hover:underline">
                         Descargar
                       </a>
@@ -248,6 +370,8 @@ function ProjectTechnicalDocsSectionInner({
           })();
         }}
       />
+      {auditResult && <AuditViewer result={auditResult} onClose={() => setAuditResult(null)} />}
+      {mermaidCode && <MermaidViewer code={mermaidCode} onClose={() => setMermaidCode(null)} />}
     </div>
   );
 }
