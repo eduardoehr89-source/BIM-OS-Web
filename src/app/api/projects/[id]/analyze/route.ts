@@ -3,7 +3,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { verifyToken } from "@/lib/auth";
 import { BEP_ANALYSIS_PROMPT, BEP_DIAGRAM_MODE_SUFFIX } from "@/lib/ai-prompts";
 import { getAuthPayload } from "@/lib/comunicaciones-auth";
-import { logGeminiModelsOnFailure } from "@/lib/gemini-list-models";
+import { fetchGeminiModelNames } from "@/lib/gemini-list-models";
 import { prisma } from "@/lib/prisma";
 import { canUserAccessProjectFiles } from "@/lib/project-file-upload-access";
 import { readProjectFileBuffer } from "@/lib/read-project-file-buffer";
@@ -21,6 +21,8 @@ function extractMermaidBlock(raw: string): string {
 }
 
 export async function POST(req: Request, ctx: Params) {
+  console.log("Iniciando análisis con Gemini...");
+
   const { id: projectId } = await ctx.params;
 
   let auth = await getAuthPayload();
@@ -122,7 +124,19 @@ export async function POST(req: Request, ctx: Params) {
     });
   } catch (e: unknown) {
     console.error(`[POST /api/projects/[id]/analyze] Error modelo=${GEMINI_MODEL}:`, e);
-    logGeminiModelsOnFailure(apiKey, "POST /api/projects/[id]/analyze");
+    try {
+      const listModelsFn = (genAI as unknown as { listModels?: () => Promise<unknown> }).listModels;
+      if (typeof listModelsFn === "function") {
+        console.log("[analyze] await genAI.listModels():", await listModelsFn.call(genAI));
+      } else {
+        console.log(
+          "[analyze] await genAI.listModels(): no existe en @google/generative-ai; listado equivalente (REST):",
+          await fetchGeminiModelNames(apiKey),
+        );
+      }
+    } catch (listErr) {
+      console.log("[analyze] Error al obtener listado de modelos:", listErr);
+    }
     const msg = e instanceof Error ? e.message : "Error al analizar con IA";
     return NextResponse.json({ error: msg }, { status: 500 });
   }
