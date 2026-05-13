@@ -11,33 +11,37 @@ export async function DELETE(req: Request, ctx: Params) {
   const userId = await getCurrentUserId();
   if (!userId) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
 
-  let nip = "";
-  try {
-    const body = (await req.json()) as { nip?: unknown };
-    nip = typeof body.nip === "string" ? body.nip.trim() : "";
-  } catch {
-    return NextResponse.json({ error: "Se requiere un cuerpo JSON con el campo «nip»" }, { status: 400 });
-  }
-
-  if (!isValidNipFormat(nip)) {
-    return NextResponse.json({ error: "El NIP debe ser exactamente 4 dígitos" }, { status: 400 });
-  }
-
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { nip: true, tipo: true },
   });
-  if (!user?.nip || !isValidNipFormat(user.nip)) {
-    return NextResponse.json(
-      {
-        error:
-          "Debe configurar su NIP de 4 dígitos en Configuración antes de mover archivos a la papelera.",
-      },
-      { status: 400 },
-    );
-  }
-  if (user.nip !== nip) {
-    return NextResponse.json({ error: "NIP incorrecto" }, { status: 403 });
+  if (!user) return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
+
+  const isAdmin = user.tipo === "ADMIN";
+
+  // ADMIN: no requiere NIP para mover archivos a la papelera
+  // USER: sigue requiriendo NIP
+  if (!isAdmin) {
+    let nip = "";
+    try {
+      const body = (await req.json()) as { nip?: unknown };
+      nip = typeof body.nip === "string" ? body.nip.trim() : "";
+    } catch {
+      return NextResponse.json({ error: "Se requiere un cuerpo JSON con el campo «nip»" }, { status: 400 });
+    }
+
+    if (!isValidNipFormat(nip)) {
+      return NextResponse.json({ error: "El NIP debe ser exactamente 4 dígitos" }, { status: 400 });
+    }
+    if (!user.nip || !isValidNipFormat(user.nip)) {
+      return NextResponse.json(
+        { error: "Debe configurar su NIP de 4 dígitos en Configuración antes de mover archivos a la papelera." },
+        { status: 400 },
+      );
+    }
+    if (user.nip !== nip) {
+      return NextResponse.json({ error: "NIP incorrecto" }, { status: 403 });
+    }
   }
 
   const { id } = await ctx.params;
@@ -48,7 +52,6 @@ export async function DELETE(req: Request, ctx: Params) {
   if (!file) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
   if (file.isDeleted) return new NextResponse(null, { status: 204 });
 
-  const isAdmin = user.tipo === "ADMIN";
   const allowed = await userCanAccessStoredFile(userId, isAdmin, file);
   if (!allowed) return NextResponse.json({ error: "Sin acceso" }, { status: 403 });
 

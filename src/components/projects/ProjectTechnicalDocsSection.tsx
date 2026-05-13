@@ -444,24 +444,21 @@ function ProjectTechnicalDocsSectionInner({
       </div>
       <ConfirmDialog
         open={trashDocId !== null}
-        title="Confirmar eliminación"
-        message="Ingrese su NIP para continuar"
-        confirmLabel="Mover a la papelera"
+        title="Mover a la papelera"
+        message="¿Seguro que quieres mover este archivo a la papelera? Podrás recuperarlo desde la sección de archivos eliminados."
+        confirmLabel="Sí, mover a la papelera"
         confirmVariant="destructive"
-        requirePin={true}
-        secretFieldLabel="NIP"
-        secretPlaceholder="4 dígitos"
-        secretExactLength={NIP_DIGITS}
+        requirePin={false}
         onCancel={() => setTrashDocId(null)}
-        onConfirm={(nip) => {
+        onConfirm={() => {
           const id = trashDocId;
           setTrashDocId(null);
-          if (!id || !nip) return;
+          if (!id) return;
           void (async () => {
             const res = await fetch(`/api/files/${id}`, {
               method: "DELETE",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ nip }),
+              body: JSON.stringify({ nip: "" }),
             });
             if (res.status === 204) {
               onChanged();
