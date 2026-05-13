@@ -101,6 +101,12 @@ export async function POST(req: Request, ctx: Params) {
     }
   }
 
+  // ── Usuario asignado opcional (dispara tarea REVISAR automática) ──────────
+  const assignedUserRaw = formData.get("assignedUserId");
+  const assignedUserId =
+    typeof assignedUserRaw === "string" && assignedUserRaw.trim()
+      ? assignedUserRaw.trim()
+      : null;
   const created = [];
   try {
     for (const file of validFiles) {
@@ -203,6 +209,57 @@ export async function POST(req: Request, ctx: Params) {
             subfolderId: resolvedSubfolderId,
           },
         });
+      }
+
+      // ── Tarea REVISAR auto-generada si se indicó un asignado ─────────────
+      if (assignedUserId) {
+        try {
+          const assignedUser = await prisma.user.findUnique({
+            where: { id: assignedUserId },
+            select: { nombre: true },
+          });
+          if (assignedUser) {
+            const fechaTermino = new Date();
+            fechaTermino.setDate(fechaTermino.getDate() + 7); // 1 semana
+
+            const task = await prisma.projectTask.create({
+              data: {
+                projectId,
+                nombre: `REVISAR: ${row.originalName}`,
+                disciplina: "OTROS",
+                fechaTermino,
+                complejidad: "MEDIO",
+                actividad: "DOCUMENTACION",
+                taskEstatus: "PENDIENTE",
+                relatedFileId: row.id,
+                ownerId: userId, // Quien subió es el dueño de la tarea
+                assignments: {
+                  create: { userId: assignedUserId },
+                },
+              },
+            });
+
+            // Notificar al asignado
+            const projectData = await prisma.project.findUnique({
+              where: { id: projectId },
+              select: { nombre: true },
+            });
+            await prisma.notification.create({
+              data: {
+                userId: assignedUserId,
+                tipo: "TAREA_ASIGNADA",
+                titulo: `Nueva tarea asignada en ${projectData?.nombre ?? "un proyecto"}`,
+                cuerpo: `Se te asignó revisar "${row.originalName}". Vence en 7 días.`,
+                projectId,
+                fileName: row.originalName,
+              },
+            });
+
+            void task; // evitar lint
+          }
+        } catch {
+          // No bloquear la subida si falla la tarea
+        }
       }
 
       created.push(row);

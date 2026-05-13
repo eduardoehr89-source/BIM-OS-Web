@@ -12,6 +12,7 @@ import {
   FolderPlus,
   Paperclip,
   Trash2,
+  UserPlus,
 } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
@@ -71,6 +72,8 @@ function fileNameIcon(name: string) {
   return FileText;
 }
 
+type UserOpt = { id: string; nombre: string };
+
 function ProjectIsoAttachmentsSectionInner({
   projectId,
   files,
@@ -90,6 +93,19 @@ function ProjectIsoAttachmentsSectionInner({
   const [contentDragOver, setContentDragOver] = useState(false);
   const pendingTargetRef = useRef<UploadTarget | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Selector de usuario asignado
+  const [users, setUsers] = useState<UserOpt[]>([]);
+  const [assignedUserId, setAssignedUserId] = useState("");
+
+  useEffect(() => {
+    fetch("/api/users/list", { credentials: "same-origin" })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: unknown) => {
+        if (Array.isArray(data)) setUsers(data as UserOpt[]);
+      })
+      .catch(() => {});
+  }, []);
 
   /** Una sola vez por proyecto al abrirlo (componente montado con este projectId), no al cambiar de pestaña. */
   useEffect(() => {
@@ -122,6 +138,8 @@ function ProjectIsoAttachmentsSectionInner({
         for (const f of arr) fd.append("files", f);
         fd.append("isoContainer", target.container);
         if (target.subfolderId) fd.append("isoSubfolderId", target.subfolderId);
+        // Si hay usuario seleccionado, enviar para crear tarea REVISAR
+        if (assignedUserId) fd.append("assignedUserId", assignedUserId);
         const res = await fetch(`/api/projects/${projectId}/files`, {
           method: "POST",
           credentials: "include",
@@ -140,7 +158,7 @@ function ProjectIsoAttachmentsSectionInner({
         if (fileInputRef.current) fileInputRef.current.value = "";
       }
     },
-    [projectId, onReload, onError, setUploadBusy],
+    [projectId, onReload, onError, setUploadBusy, assignedUserId],
   );
 
   function openFilePicker() {
@@ -277,6 +295,29 @@ function ProjectIsoAttachmentsSectionInner({
           <Paperclip className="h-[1.05rem] w-[1.05rem] shrink-0" strokeWidth={2} aria-hidden />
           {uploadBusy ? "Subiendo…" : "Adjuntar archivo"}
         </button>
+
+        {/* Selector de asignado — opcional */}
+        {users.length > 0 && canAttach && (
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <UserPlus className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+            <select
+              id="attach-assign-user"
+              value={assignedUserId}
+              onChange={(e) => setAssignedUserId(e.target.value)}
+              className="rounded-md border border-input bg-background px-2 py-1.5 text-xs text-foreground focus:border-accent focus:outline-none"
+              title="Asignar revisor (opcional — crea tarea REVISAR automáticamente)"
+            >
+              <option value="">Sin asignar</option>
+              {users.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.nombre}
+                </option>
+              ))}
+            </select>
+            <span className="hidden sm:inline">→ crea tarea REVISAR</span>
+          </label>
+        )}
+
         <span className="ml-auto text-xs text-muted-foreground">
           ISO 19650 · BEP/OIR en «Doc. PDF»
         </span>

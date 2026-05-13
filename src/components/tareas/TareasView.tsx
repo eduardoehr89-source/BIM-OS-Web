@@ -37,6 +37,7 @@ export type GlobalTaskListItem = TaskRow & {
   projectId: string;
   projectNombre: string;
   projectClientNombre: string;
+  relatedFileName?: string | null;
 };
 
 function normalizeTasks(raw: unknown): TaskRow[] {
@@ -106,6 +107,9 @@ function normalizeGlobalTasks(raw: unknown): GlobalTaskListItem[] {
       projectId: String(proj?.id ?? ""),
       projectNombre: String(proj?.nombre ?? ""),
       projectClientNombre: String(client?.nombre ?? ""),
+      relatedFileName: t.relatedFile
+        ? String((t.relatedFile as Record<string, unknown>).originalName ?? "")
+        : null,
     };
   });
 }
@@ -625,11 +629,12 @@ export function TareasView() {
               <thead>
                 <tr className="border-b border-border bg-muted/40 dark:bg-muted/25">
                   <th className="w-[22%] px-2 py-2 font-semibold uppercase tracking-wide text-muted-foreground">Tarea</th>
-                  <th className="w-[18%] px-2 py-2 font-semibold uppercase tracking-wide text-muted-foreground">Proyecto</th>
-                  <th className="w-[14%] px-2 py-2 font-semibold uppercase tracking-wide text-muted-foreground">Empresa</th>
-                  <th className="w-[22%] px-2 py-2 font-semibold uppercase tracking-wide text-muted-foreground">Responsables</th>
-                  <th className="w-[12%] px-2 py-2 font-semibold uppercase tracking-wide text-muted-foreground">Estatus</th>
-                  <th className="w-[12%] px-2 py-2 font-semibold uppercase tracking-wide text-muted-foreground">Vence</th>
+                  <th className="w-[16%] px-2 py-2 font-semibold uppercase tracking-wide text-muted-foreground">Proyecto</th>
+                  <th className="w-[12%] px-2 py-2 font-semibold uppercase tracking-wide text-muted-foreground">Empresa</th>
+                  <th className="w-[18%] px-2 py-2 font-semibold uppercase tracking-wide text-muted-foreground">Responsables</th>
+                  <th className="w-[10%] px-2 py-2 font-semibold uppercase tracking-wide text-muted-foreground">Estatus</th>
+                  <th className="w-[10%] px-2 py-2 font-semibold uppercase tracking-wide text-muted-foreground">Vence</th>
+                  <th className="w-[12%] px-2 py-2 font-semibold uppercase tracking-wide text-muted-foreground">Archivo</th>
                 </tr>
               </thead>
               <tbody>
@@ -668,6 +673,18 @@ export function TareasView() {
                     </td>
                     <td className="px-2 py-1.5 align-middle tabular-nums text-muted-foreground">
                       {new Date(t.fechaTermino).toLocaleDateString("es", { day: "2-digit", month: "short", year: "numeric" })}
+                    </td>
+                    <td className="px-2 py-1.5 align-middle">
+                      {t.relatedFileName ? (
+                        <span
+                          className="inline-block max-w-[10rem] truncate rounded bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                          title={t.relatedFileName}
+                        >
+                          📎 {t.relatedFileName}
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-muted-foreground">—</span>
+                      )}
                     </td>
                   </tr>
                 ))}

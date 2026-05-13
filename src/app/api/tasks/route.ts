@@ -44,6 +44,9 @@ export async function GET() {
         assignments: {
           include: { user: { select: { nombre: true } } },
         },
+        relatedFile: {
+          select: { originalName: true },
+        },
       },
     });
 
