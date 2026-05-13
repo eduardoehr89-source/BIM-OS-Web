@@ -7,15 +7,14 @@ export const dynamic = "force-dynamic";
 
 /**
  * Listado global de tareas visibles para el usuario actual.
- * ADMIN: todas las tareas (alineado con el conteo del dashboard).
- * USER: dueño, compartidas en la tarea, o con asignación (aceptada o pendiente).
+ * ADMIN: todas las tareas.
+ * USER: solo tareas donde isAccepted=true en su asignación, o es el dueño/shared.
+ *       Las tareas pendientes de aceptar se cargan por /api/tasks/pending.
  */
 export async function GET() {
   try {
     const userId = await getCurrentUserId();
-    if (!userId) {
-      return NextResponse.json([]);
-    }
+    if (!userId) return NextResponse.json([]);
 
     const cookieStore = await cookies();
     const token = cookieStore.get("bimos_session")?.value;
@@ -29,7 +28,8 @@ export async function GET() {
             OR: [
               { ownerId: userId },
               { sharedWith: { some: { id: userId } } },
-              { assignments: { some: { userId } } },
+              // Solo aparecen en listado global si la asignación fue aceptada
+              { assignments: { some: { userId, isAccepted: true } } },
             ],
           },
       orderBy: [{ fechaTermino: "asc" }, { nombre: "asc" }],

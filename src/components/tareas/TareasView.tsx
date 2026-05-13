@@ -2,12 +2,14 @@
 
 import {
   ArrowLeft,
+  CheckCircle2,
   ClipboardList,
   FilterX,
   LayoutGrid,
   LayoutList,
   Plus,
   Search,
+  XCircle,
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -181,6 +183,11 @@ export function TareasView() {
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"table" | "cards">("table");
 
+  // Tareas pendientes de aceptar (asignadas pero aún no aceptadas)
+  const [pendingTasks, setPendingTasks] = useState<GlobalTaskListItem[]>([]);
+  const [pendingLoading, setPendingLoading] = useState(true);
+  const [acceptingId, setAcceptingId] = useState<string | null>(null);
+
   const projectsSeqRef = useRef(0);
 
   const loadProjects = useCallback(async () => {
@@ -217,16 +224,27 @@ export function TareasView() {
         throw new Error(msg);
       }
       const data = await res.json();
-      if (!Array.isArray(data)) {
-        setGlobalTasks([]);
-        return;
-      }
+      if (!Array.isArray(data)) { setGlobalTasks([]); return; }
       setGlobalTasks(normalizeGlobalTasks(data));
     } catch (e) {
       setGlobalError(e instanceof Error ? e.message : "Error");
       setGlobalTasks([]);
     } finally {
       setGlobalLoading(false);
+    }
+  }, []);
+
+  const loadPendingTasks = useCallback(async () => {
+    setPendingLoading(true);
+    try {
+      const res = await fetch("/api/tasks/pending");
+      if (!res.ok) { setPendingTasks([]); return; }
+      const data = await res.json();
+      setPendingTasks(Array.isArray(data) ? normalizeGlobalTasks(data) : []);
+    } catch {
+      setPendingTasks([]);
+    } finally {
+      setPendingLoading(false);
     }
   }, []);
 
@@ -242,13 +260,15 @@ export function TareasView() {
 
   useEffect(() => {
     let cancelled = false;
-    queueMicrotask(() => {
-      if (!cancelled) void loadGlobalTasks();
-    });
-    return () => {
-      cancelled = true;
-    };
+    queueMicrotask(() => { if (!cancelled) void loadGlobalTasks(); });
+    return () => { cancelled = true; };
   }, [loadGlobalTasks]);
+
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => { if (!cancelled) void loadPendingTasks(); });
+    return () => { cancelled = true; };
+  }, [loadPendingTasks]);
 
   const loadClients = useCallback(async () => {
     setLoadingClients(true);
@@ -299,6 +319,25 @@ export function TareasView() {
     });
   }, [loadProjects, loadClients, loadGlobalTasks]);
 
+  async function handleAccept(taskId: string, accept: boolean) {
+    setAcceptingId(taskId);
+    try {
+      const res = await fetch(`/api/tasks/${taskId}/accept`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accept }),
+        credentials: "same-origin",
+      });
+      if (res.ok) {
+        await Promise.all([loadPendingTasks(), loadGlobalTasks()]);
+      }
+    } catch {
+      /* noop */
+    } finally {
+      setAcceptingId(null);
+    }
+  }
+
   useEffect(() => {
     if (!selectedProjectId) return;
 
@@ -346,6 +385,7 @@ export function TareasView() {
   function handleTasksChanged() {
     void loadProjects();
     void loadGlobalTasks();
+    void loadPendingTasks();
     setTaskReloadNonce((n) => n + 1);
     notifyDataRefresh({ reason: "projects" });
   }
@@ -546,6 +586,67 @@ export function TareasView() {
               openCreateSignal={taskOpenCreateSignal}
             />
           )}
+        </section>
+      )}
+
+      {/* ── Bandeja: tareas asignadas pendientes de aceptar ── */}
+      {!pendingLoading && pendingTasks.length > 0 && (
+        <section className="space-y-3 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-5">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-amber-500" strokeWidth={1.75} />
+            <h2 className="text-sm font-semibold text-amber-600 dark:text-amber-400">
+              Tareas pendientes de aceptar
+              <span className="ml-2 rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                {pendingTasks.length}
+              </span>
+            </h2>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Estas tareas te fueron asignadas. Acéptalas para que aparezcan en tu listado de trabajo.
+          </p>
+          <ul className="space-y-2">
+            {pendingTasks.map((t) => (
+              <li
+                key={t.id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/20 bg-background px-4 py-3"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[13px] font-medium text-foreground">{t.nombre}</p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                    {t.projectNombre}
+                    {t.relatedFileName && (
+                      <span className="ml-2 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px]">
+                        📎 {t.relatedFileName}
+                      </span>
+                    )}
+                  </p>
+                  <p className="mt-0.5 text-[10px] text-muted-foreground/60">
+                    Vence: {new Date(t.fechaTermino).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })}
+                  </p>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <button
+                    type="button"
+                    disabled={acceptingId === t.id}
+                    onClick={() => void handleAccept(t.id, true)}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/15 px-3 py-1.5 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-500/30 transition hover:bg-emerald-500/25 disabled:opacity-50 dark:text-emerald-400"
+                  >
+                    <CheckCircle2 className="h-3 w-3" strokeWidth={2} />
+                    Aceptar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={acceptingId === t.id}
+                    onClick={() => void handleAccept(t.id, false)}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-red-500/10 px-3 py-1.5 text-[11px] font-semibold text-red-600 ring-1 ring-red-500/20 transition hover:bg-red-500/20 disabled:opacity-50 dark:text-red-400"
+                  >
+                    <XCircle className="h-3 w-3" strokeWidth={2} />
+                    Rechazar
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
         </section>
       )}
 
