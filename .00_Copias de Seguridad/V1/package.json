@@ -1,0 +1,49 @@
+{
+  "name": "webinar-app",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3001 --webpack",
+    "build": "prisma generate && node scripts/copy-ifc-wasm.mjs && next build",
+    "start": "next start -p 3001",
+    "lint": "eslint",
+    "postinstall": "prisma generate",
+    "db:migrate-iso-wip": "tsx scripts/migrate-iso-attachments-wip.ts"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^7.8.0",
+    "@types/pg": "^8.20.0",
+    "@vercel/blob": "^2.3.3",
+    "jose": "^6.2.3",
+    "lucide-react": "^1.14.0",
+    "mermaid": "^11.14.0",
+    "next": "16.2.4",
+    "pg": "^8.20.0",
+    "prisma": "^7.8.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "react-markdown": "^10.1.0",
+    "react-syntax-highlighter": "^16.1.1",
+    "remark-gfm": "^4.0.1",
+    "sonner": "^2.0.7",
+    "three": "0.149.0",
+    "web-ifc": "^0.0.77",
+    "web-ifc-viewer": "^1.0.218"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/react-syntax-highlighter": "^15.5.13",
+    "@types/three": "0.149.0",
+    "dotenv": "^17.4.2",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "tailwindcss": "^4",
+    "tsx": "^4.21.0",
+    "typescript": "^5"
+  }
+}
