@@ -1,20 +1,32 @@
 /**
- * sw-notifications.js
- * Service Worker mínimo para BIM.OS — maneja notificaciones push de escritorio
- * y el evento "notificationclick" para abrir la URL correcta.
- *
- * Ubicación: /public/sw-notifications.js
- * Se registra desde NotificationPermissionBootstrap / FileUploadNotifier.
+ * sw-notifications.js — BIM.OS
+ * Service Worker para notificaciones de escritorio nativas.
+ * Funciona incluso con la pestaña minimizada o en segundo plano.
  */
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
 
-/**
- * Cuando el usuario hace clic en la notificación:
- * - Si hay una pestaña de BIM.OS abierta → la enfoca.
- * - Si no → abre una nueva.
- */
+// ── Recibe mensajes desde el hilo principal ──────────────────────────────────
+self.addEventListener("message", (event) => {
+  const data = event.data;
+  if (!data || data.type !== "SHOW_NOTIFICATION") return;
+
+  const { title, body, icon, tag, url } = data;
+
+  event.waitUntil(
+    self.registration.showNotification(title ?? "BIM.OS", {
+      body: body ?? "",
+      icon: icon ?? "/favicon.ico",
+      badge: "/favicon.ico",
+      tag: tag ?? "bimos-notif",
+      requireInteraction: false,
+      data: { url: url ?? "/" },
+    })
+  );
+});
+
+// ── Clic en la notificación: enfocar o abrir pestaña ────────────────────────
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
 

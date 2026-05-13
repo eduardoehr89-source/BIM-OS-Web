@@ -4,7 +4,6 @@ import { redirect } from "next/navigation";
 import { AppChrome } from "@/components/AppChrome";
 import { VoiceCommandsProvider } from "@/context/VoiceCommandsProvider";
 import { verifyToken } from "@/lib/auth";
-import { FileUploadNotifier } from "@/components/FileUploadNotifier";
 
 export default async function MainLayout({ children }: { children: ReactNode }) {
   let userRole = "USER";
@@ -49,8 +48,6 @@ export default async function MainLayout({ children }: { children: ReactNode }) 
       <AppChrome userRole={userRole} userName={userName} userPermisos={userPermisos} isSupremo={isSupremo}>
         {children}
       </AppChrome>
-      {/* Notificaciones de escritorio en tiempo real — visible con web minimizada */}
-      <FileUploadNotifier />
     </VoiceCommandsProvider>
   );
 }
