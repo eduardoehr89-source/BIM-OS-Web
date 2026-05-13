@@ -1,6 +1,6 @@
 "use client";
 
-import { Brain, FileText, Loader2, Network, Trash2 } from "lucide-react";
+import { Brain, FileText, Loader2, Network, Trash2, UserPlus } from "lucide-react";
 import { memo, useEffect, useId, useRef, useState } from "react";
 import mermaid from "mermaid";
 import ReactMarkdown from "react-markdown";
@@ -143,6 +143,26 @@ function ProjectTechnicalDocsSectionInner({
   const [mermaidCode, setMermaidCode] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState<{ fileId: string; action: "audit" | "mermaid" } | null>(null);
 
+  // Selector de usuario asignado
+  const [users, setUsers] = useState<{ id: string; nombre: string }[]>([]);
+  const [assignedUserId, setAssignedUserId] = useState("");
+
+  useEffect(() => {
+    fetch("/api/users/for-assignment", { credentials: "same-origin" })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: unknown) => {
+        if (Array.isArray(data)) {
+          setUsers(
+            (data as Record<string, unknown>[]).map((u) => ({
+              id: String(u.id ?? ""),
+              nombre: String(u.nombre ?? ""),
+            }))
+          );
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   const generatedIso = `${isoProy}-${isoOrg}-${isoVol}-${isoNiv}-${isoTipo}-${isoRol}-${isoNum}`.toUpperCase();
   const isIsoValid = isoProy.length > 0 && isoOrg.length > 0 && isoVol.length > 0 && isoNiv.length > 0 && isoTipo.length > 0 && isoRol.length > 0 && isoNum.length > 0;
 
@@ -200,6 +220,8 @@ function ProjectTechnicalDocsSectionInner({
           fd.append("files", f);
         }
       }
+      // Si hay usuario asignado, crear tarea REVISAR automáticamente
+      if (assignedUserId) fd.append("assignedUserId", assignedUserId);
       const res = await fetch(`/api/projects/${projectId}/files`, { method: "POST", body: fd });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -289,6 +311,29 @@ function ProjectTechnicalDocsSectionInner({
             onChange={onUpload}
           />
           {busy ? "Subiendo" : "Subir archivos"}
+        </label>
+        {/* Selector de usuario asignado */}
+        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          <UserPlus className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+          <select
+            id="techdoc-assign-user"
+            value={assignedUserId}
+            onChange={(e) => setAssignedUserId(e.target.value)}
+            className="rounded-md border border-input bg-background px-2 py-1.5 text-xs text-foreground focus:border-accent focus:outline-none"
+            title="Asignar revisor (opcional — crea tarea REVISAR)"
+          >
+            <option value="">Sin asignar</option>
+            {users.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.nombre}
+              </option>
+            ))}
+          </select>
+          {assignedUserId && (
+            <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-400">
+              ✓ Creará tarea REVISAR
+            </span>
+          )}
         </label>
       </div>
       <div className="overflow-x-auto mt-6 rounded-2xl bg-muted/40 dark:bg-muted/20">

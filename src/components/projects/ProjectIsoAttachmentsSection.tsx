@@ -99,10 +99,18 @@ function ProjectIsoAttachmentsSectionInner({
   const [assignedUserId, setAssignedUserId] = useState("");
 
   useEffect(() => {
-    fetch("/api/users/list", { credentials: "same-origin" })
+    // for-assignment devuelve todos los usuarios (cualquier rol con sesión)
+    fetch("/api/users/for-assignment", { credentials: "same-origin" })
       .then((r) => (r.ok ? r.json() : []))
       .then((data: unknown) => {
-        if (Array.isArray(data)) setUsers(data as UserOpt[]);
+        if (Array.isArray(data)) {
+          setUsers(
+            (data as Record<string, unknown>[]).map((u) => ({
+              id: String(u.id ?? ""),
+              nombre: String(u.nombre ?? ""),
+            }))
+          );
+        }
       })
       .catch(() => {});
   }, []);
@@ -296,8 +304,8 @@ function ProjectIsoAttachmentsSectionInner({
           {uploadBusy ? "Subiendo…" : "Adjuntar archivo"}
         </button>
 
-        {/* Selector de asignado — opcional */}
-        {users.length > 0 && canAttach && (
+        {/* Selector de asignado — siempre visible si canAttach */}
+        {canAttach && (
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
             <UserPlus className="h-4 w-4 shrink-0" strokeWidth={1.75} />
             <select
@@ -307,14 +315,18 @@ function ProjectIsoAttachmentsSectionInner({
               className="rounded-md border border-input bg-background px-2 py-1.5 text-xs text-foreground focus:border-accent focus:outline-none"
               title="Asignar revisor (opcional — crea tarea REVISAR automáticamente)"
             >
-              <option value="">Sin asignar</option>
+              <option value="">Sin asignar (no crea tarea)</option>
               {users.map((u) => (
                 <option key={u.id} value={u.id}>
                   {u.nombre}
                 </option>
               ))}
             </select>
-            <span className="hidden sm:inline">→ crea tarea REVISAR</span>
+            {assignedUserId && (
+              <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-400">
+                ✓ Creará tarea REVISAR
+              </span>
+            )}
           </label>
         )}
 
