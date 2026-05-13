@@ -21,6 +21,96 @@ function readUploadMeta(file: File): { size: number; mimeType: string } {
   };
 }
 
+/**
+ * Crea la tarea REVISAR y dos notificaciones al asignado.
+ * Esta función SIEMPRE hace await — es sincrónica respecto al handler
+ * para que Vercel no la cancele al retornar la respuesta.
+ * Los errores son atrapados y logueados sin propagar.
+ */
+async function crearTareaYNotificaciones({
+  projectId,
+  projectNombre,
+  fileId,
+  fileName,
+  assignedUserId,
+  uploaderUserId,
+  uploaderNombre,
+}: {
+  projectId: string;
+  projectNombre: string;
+  fileId: string;
+  fileName: string;
+  assignedUserId: string;
+  uploaderUserId: string;
+  uploaderNombre: string | null;
+}) {
+  try {
+    // 1. Verificar que el usuario asignado existe
+    const assignedUser = await prisma.user.findUnique({
+      where: { id: assignedUserId },
+      select: { id: true, nombre: true },
+    });
+
+    if (!assignedUser) {
+      console.error("[upload/tarea] usuario asignado no encontrado:", assignedUserId);
+      return;
+    }
+
+    // 2. Crear la tarea REVISAR vinculada al archivo
+    const fechaTermino = new Date();
+    fechaTermino.setDate(fechaTermino.getDate() + 7); // vence en 7 días
+
+    const task = await prisma.projectTask.create({
+      data: {
+        projectId,
+        nombre: `REVISAR: ${fileName}`,
+        disciplina: "OTROS",
+        fechaTermino,
+        complejidad: "MEDIO",
+        actividad: "DOCUMENTACION",
+        taskEstatus: "PENDIENTE",
+        relatedFileId: fileId,
+        ownerId: uploaderUserId,
+        assignments: {
+          create: { userId: assignedUserId },
+        },
+      },
+    });
+    console.log(`[upload/tarea] ✓ Tarea creada: ${task.id} → "${fileName}" → asignado: ${assignedUser.nombre}`);
+
+    // 3. Notificación: Tarea asignada
+    await prisma.notification.create({
+      data: {
+        userId: assignedUserId,
+        tipo: "TAREA_ASIGNADA",
+        titulo: `Nueva tarea asignada en ${projectNombre}`,
+        cuerpo: `Se te asignó revisar "${fileName}". Vence en 7 días.`,
+        projectId,
+        fileName,
+        uploaderName: uploaderNombre,
+      },
+    });
+
+    // 4. Notificación: Archivo cargado
+    await prisma.notification.create({
+      data: {
+        userId: assignedUserId,
+        tipo: "FILE_UPLOADED",
+        titulo: `Archivo cargado en ${projectNombre}`,
+        cuerpo: `${uploaderNombre ?? "Un usuario"} subió "${fileName}" y te lo asignó para revisión.`,
+        projectId,
+        fileName,
+        uploaderName: uploaderNombre,
+      },
+    });
+
+    console.log(`[upload/tarea] ✓ 2 notificaciones creadas para ${assignedUser.nombre}`);
+  } catch (err) {
+    // Error aislado — NO se propaga al handler principal
+    console.error("[upload/tarea] fallo al crear tarea/notificaciones:", err);
+  }
+}
+
 export async function POST(req: Request, ctx: Params) {
   const { id: projectId } = await ctx.params;
   const project = await prisma.project.findUnique({ where: { id: projectId } });
@@ -43,7 +133,6 @@ export async function POST(req: Request, ctx: Params) {
   }
 
   const allowed = await canUserAccessProjectFiles(projectId, userId, auth);
-
   if (!allowed) {
     return NextResponse.json({ error: "Sin acceso a este proyecto" }, { status: 403 });
   }
@@ -73,7 +162,9 @@ export async function POST(req: Request, ctx: Params) {
   const technicalDocType = parseTechnicalDocType(typeof techRaw === "string" ? techRaw : "");
 
   const isoRaw = formData.get("isoContainer");
-  const isoContainer = !technicalDocType ? parseIsoAttachmentContainer(typeof isoRaw === "string" ? isoRaw : "") : null;
+  const isoContainer = !technicalDocType
+    ? parseIsoAttachmentContainer(typeof isoRaw === "string" ? isoRaw : "")
+    : null;
 
   if (!technicalDocType && !isoContainer) {
     return NextResponse.json(
@@ -85,28 +176,30 @@ export async function POST(req: Request, ctx: Params) {
   const isoSubfolderRaw = formData.get("isoSubfolderId");
   const isoSubfolderIdStr = typeof isoSubfolderRaw === "string" ? isoSubfolderRaw.trim() : "";
   let resolvedSubfolderId: string | null = null;
-  if (!technicalDocType && isoContainer) {
-    if (isoSubfolderIdStr) {
-      const sf = await prisma.attachmentSubfolder.findFirst({
-        where: { id: isoSubfolderIdStr, projectId, container: isoContainer },
-        select: { id: true },
-      });
-      if (!sf) {
-        return NextResponse.json(
-          { error: "Subcarpeta no válida para este proyecto o contenedor" },
-          { status: 400 },
-        );
-      }
-      resolvedSubfolderId = sf.id;
+  if (!technicalDocType && isoContainer && isoSubfolderIdStr) {
+    const sf = await prisma.attachmentSubfolder.findFirst({
+      where: { id: isoSubfolderIdStr, projectId, container: isoContainer },
+      select: { id: true },
+    });
+    if (!sf) {
+      return NextResponse.json(
+        { error: "Subcarpeta no válida para este proyecto o contenedor" },
+        { status: 400 },
+      );
     }
+    resolvedSubfolderId = sf.id;
   }
 
-  // ── Usuario asignado opcional (dispara tarea REVISAR automática) ──────────
+  // ── Usuario asignado (campo opcional del formulario) ──────────────────────
   const assignedUserRaw = formData.get("assignedUserId");
   const assignedUserId =
     typeof assignedUserRaw === "string" && assignedUserRaw.trim()
       ? assignedUserRaw.trim()
       : null;
+
+  console.log(`[upload] assignedUserId recibido: ${assignedUserId ?? "(ninguno)"}`);
+
+  // ── Procesamiento de archivos ─────────────────────────────────────────────
   const created = [];
   try {
     for (const file of validFiles) {
@@ -181,7 +274,9 @@ export async function POST(req: Request, ctx: Params) {
           where: { id: projectId },
           data: {
             bepFileId: row.id,
-            ...(proj?.estatus === ProjectStatus.INCOMPLETO ? { estatus: ProjectStatus.INICIO_PENDIENTE } : {}),
+            ...(proj?.estatus === ProjectStatus.INCOMPLETO
+              ? { estatus: ProjectStatus.INICIO_PENDIENTE }
+              : {}),
           },
         });
       }
@@ -211,79 +306,19 @@ export async function POST(req: Request, ctx: Params) {
         });
       }
 
-      // ── Tarea REVISAR + Notificaciones ────────────────────────────────────
-      // Proceso SECUNDARIO: el archivo ya fue guardado.
-      // Usamos void + IIFE para que cualquier fallo NO bloquee la respuesta.
+      // ── Tarea REVISAR + 2 Notificaciones ─────────────────────────────────
+      // IMPORTANTE: await explícito para que Vercel no cancele la operación
+      // al retornar la respuesta. El helper tiene su propio try/catch.
       if (assignedUserId) {
-        const fileId = row.id;
-        const fileName = row.originalName;
-        const projectName = project.nombre;
-        const uploaderName = auth?.nombre ?? null;
-        const assignedId = assignedUserId; // captura local para el closure
-        const ownerId = userId;
-
-        void (async () => {
-          try {
-            const assignedUser = await prisma.user.findUnique({
-              where: { id: assignedId },
-              select: { nombre: true },
-            });
-
-            if (!assignedUser) {
-              console.error("[upload] assignedUser not found:", assignedId);
-              return;
-            }
-
-            const fechaTermino = new Date();
-            fechaTermino.setDate(fechaTermino.getDate() + 7);
-
-            // Crear tarea
-            const task = await prisma.projectTask.create({
-              data: {
-                projectId,
-                nombre: `REVISAR: ${fileName}`,
-                disciplina: "OTROS",
-                fechaTermino,
-                complejidad: "MEDIO",
-                actividad: "DOCUMENTACION",
-                taskEstatus: "PENDIENTE",
-                relatedFileId: fileId,
-                ownerId,
-                assignments: { create: { userId: assignedId } },
-              },
-            });
-            console.log("[upload] tarea REVISAR creada:", task.id);
-
-            // Notificación 1: Tarea asignada
-            await prisma.notification.create({
-              data: {
-                userId: assignedId,
-                tipo: "TAREA_ASIGNADA",
-                titulo: `Nueva tarea asignada en ${projectName}`,
-                cuerpo: `Se te asignó revisar "${fileName}". Vence en 7 días.`,
-                projectId,
-                fileName,
-                uploaderName,
-              },
-            });
-
-            // Notificación 2: Archivo cargado
-            await prisma.notification.create({
-              data: {
-                userId: assignedId,
-                tipo: "FILE_UPLOADED",
-                titulo: `Archivo cargado en ${projectName}`,
-                cuerpo: `${uploaderName ?? "Un usuario"} subió "${fileName}" y te lo asignó para revisión.`,
-                projectId,
-                fileName,
-                uploaderName,
-              },
-            });
-          } catch (err) {
-            // Solo log — NUNCA afecta la respuesta principal
-            console.error("[upload] fallo tarea/notificación (no crítico):", err);
-          }
-        })();
+        await crearTareaYNotificaciones({
+          projectId,
+          projectNombre: project.nombre,
+          fileId: row.id,
+          fileName: row.originalName,
+          assignedUserId,
+          uploaderUserId: userId,
+          uploaderNombre: auth?.nombre ?? null,
+        });
       }
 
       created.push(row);
