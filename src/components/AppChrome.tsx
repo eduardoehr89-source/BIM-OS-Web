@@ -23,6 +23,7 @@ import { InvitationsWidget } from "@/components/InvitationsWidget";
 import { GlobalSearch } from "@/components/GlobalSearch";
 import { Sidebar, type SidebarNavLink } from "@/components/Sidebar";
 import { useFileUploadAlerts } from "@/hooks/useFileUploadAlerts";
+import { NotificationsPanel } from "@/components/NotificationsPanel";
 
 const allLinks: SidebarNavLink[] = [
   { href: "/dashboard", label: "Dashboard", Icon: LayoutDashboard },
@@ -115,6 +116,7 @@ export function AppChrome({
             </div>
             <div className="mx-0.5 h-5 w-px shrink-0 bg-slate-700 sm:mx-1" />
             <InvitationsWidget />
+            <NotificationsPanel />
             <ThemeToggle />
             <AssistantButton />
             <div className="ml-1 flex items-center gap-2 border-l border-slate-700 pl-2 sm:ml-2 sm:pl-3">

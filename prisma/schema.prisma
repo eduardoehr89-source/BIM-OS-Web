@@ -367,6 +367,7 @@ model User {
   notificationSettings  NotificationSettings?
   fileUploadsAsUploader FileUploadEvent[]     @relation("FileUploadUploader")
   deletedProjectFiles   ProjectFile[]         @relation("ProjectFileDeletedBy")
+  notifications         Notification[]
   createdAt             DateTime              @default(now())
   updatedAt             DateTime              @updatedAt
 }
@@ -467,4 +468,26 @@ model ChatMessage {
   attachedTaskId String?
   attachedTask   ProjectTask? @relation(fields: [attachedTaskId], references: [id], onDelete: SetNull)
   timestamp      DateTime     @default(now())
+}
+
+/// Notificación persistida en base de datos por usuario receptor.
+model Notification {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Tipo semántico: FILE_UPLOADED | SYSTEM | INVITATION
+  tipo        String    @default("FILE_UPLOADED")
+  titulo      String
+  cuerpo      String
+  /// Si viene de una subida: ID del proyecto
+  projectId   String?
+  /// Si viene de una subida: nombre del archivo
+  fileName    String?
+  /// Si viene de una subida: nombre del usuario que subió
+  uploaderName String?
+  leida       Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+
+  @@index([userId, createdAt])
+  @@index([userId, leida])
 }

@@ -144,6 +144,23 @@ export async function GET(req: Request) {
               createdAt: ev.createdAt.toISOString(),
             });
 
+            // Persistir la notificación en la base de datos para el historial
+            try {
+              await prisma.notification.create({
+                data: {
+                  userId: viewerId,
+                  tipo: "FILE_UPLOADED",
+                  titulo: `Archivo subido en ${ev.project?.nombre ?? "un proyecto"}`,
+                  cuerpo: `${ev.uploader?.nombre ?? "Un usuario"} subió "${ev.originalName}"`,
+                  projectId: ev.projectId,
+                  fileName: ev.originalName,
+                  uploaderName: ev.uploader?.nombre ?? null,
+                },
+              });
+            } catch {
+              // No bloquear el stream si falla la persistencia
+            }
+
             lastSeen = ev.createdAt;
           }
         } catch {
