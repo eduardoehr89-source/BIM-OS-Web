@@ -19,33 +19,23 @@ async function resolveUser(
   userId: string,
   nombreFromToken: string | undefined
 ): Promise<User | null> {
-  // Estrategia 1: por ID real
+
+  // Estrategia 1: ID real en Neon
   const byId = await prisma.user.findUnique({ where: { id: userId } });
   if (byId) return byId;
 
-  // Estrategia 2: por primer nombre del token
-  if (nombreFromToken?.trim()) {
-    const firstName = nombreFromToken.trim().split(/\s+/)[0];
-    const byName = await prisma.user.findFirst({
-      where: { nombre: { startsWith: firstName, mode: "insensitive" } },
-      orderBy: { createdAt: "asc" },
-    });
-    if (byName) return byName;
-  }
-
-  // Estrategia 3: buscar cualquier admin supremo (último recurso)
-  const byAdmin = await prisma.user.findFirst({
-    where: { tipo: "ADMIN", isSupremo: true },
+  // Estrategia 2: usuario que debe cambiar contraseña
+  const mustChange = await prisma.user.findFirst({
+    where: { mustChangePassword: true },
     orderBy: { createdAt: "asc" },
   });
-  if (byAdmin) return byAdmin;
+  if (mustChange) return mustChange;
 
-  // Estrategia 4: cualquier admin existente
-  const anyAdmin = await prisma.user.findFirst({
-    where: { tipo: "ADMIN" },
+  // Estrategia 3: primer usuario creado en la BD (admin original)
+  const oldest = await prisma.user.findFirst({
     orderBy: { createdAt: "asc" },
   });
-  return anyAdmin;
+  return oldest;
 }
 
 export async function POST(request: Request) {
