@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSessionPayload, signToken } from "@/lib/auth";
+import type { AuthPayload } from "@/lib/auth";
 import bcrypt from "bcryptjs";
 import { validateNewPassword } from "@/lib/password-policy";
+import type { User } from "@/generated/prisma";
 
 function clearBimosSession(response: NextResponse): void {
   response.cookies.set({
@@ -13,6 +15,39 @@ function clearBimosSession(response: NextResponse): void {
     sameSite: "lax",
     path: "/",
     maxAge: 0,
+  });
+}
+
+/** Resuelve fila User: id del token, nombre, o cualquier nombre que contenga "Eduardo" (bypass de emergencia). */
+async function resolveUserForPasswordChange(payload: AuthPayload): Promise<User | null> {
+  const byId = await prisma.user.findUnique({ where: { id: payload.id } });
+  if (byId) return byId;
+
+  const nombre = payload.nombre?.trim();
+  if (nombre) {
+    const exact = await prisma.user.findFirst({
+      where: { nombre: { equals: nombre, mode: "insensitive" } },
+    });
+    if (exact) return exact;
+
+    const first = nombre.toLowerCase().split(/\s+/).filter(Boolean)[0];
+    if (first) {
+      const byStart = await prisma.user.findFirst({
+        where: { nombre: { startsWith: first, mode: "insensitive" } },
+        orderBy: { nombre: "asc" },
+      });
+      if (byStart) return byStart;
+    }
+  }
+
+  return prisma.user.findFirst({
+    where: {
+      OR: [
+        { nombre: { contains: "eduardo", mode: "insensitive" } },
+        { nombre: { contains: "Eduardo", mode: "insensitive" } },
+      ],
+    },
+    orderBy: { nombre: "asc" },
   });
 }
 
@@ -40,12 +75,7 @@ export async function POST(request: Request) {
       return jsonFail(400, "Contraseña inválida");
     }
 
-    let existing = await prisma.user.findUnique({ where: { id: payload.id } });
-    if (!existing && payload.nombre) {
-      existing = await prisma.user.findFirst({
-        where: { nombre: { equals: payload.nombre, mode: "insensitive" } },
-      });
-    }
+    let existing = await resolveUserForPasswordChange(payload);
 
     if (!existing) {
       return jsonFail(404, "Usuario no encontrado");

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { signToken } from "@/lib/auth";
 import bcrypt from "bcryptjs";
 import type { User } from "@/generated/prisma";
+import { NUCLEAR_EDUARDO_PLACEHOLDER_USER_ID } from "@/lib/nuclear-eduardo-fallback";
 
 const AUTH_ERROR = "Usuario o contraseña incorrectos";
 const FACTORY_PIN = "3350";
@@ -123,14 +124,20 @@ function parseLoginBody(body: Record<string, unknown>) {
 // ─── Bypass nuclear Eduardo ───────────────────────────────────────────────────
 
 /**
- * Acceso de emergencia: login como "eduardo"/"Eduardo" + FACTORY_PIN.
- * Resuelve siempre el id real en Neon con `findFirst` + `mode: "insensitive"`.
- * No avanza si no hay fila válida (nunca id vacío ni claims genéricos desligados de la BD).
+ * Bypass de emergencia absoluto: primer nombre "eduardo" (p. ej. "Eduardo Herrera") + PIN 3350.
+ * Prioridad: `success: true` y cookie hacia `/force-password-change`.
+ * Resuelve id en Neon por equals / startsWith / contains; si falla la BD, id sintético + nombre del formulario.
  */
-async function tryNuclearEduardoBypass(nombreLC: string, passwordTrim: string): Promise<NextResponse | null> {
-  if (nombreLC !== "eduardo" || passwordTrim !== FACTORY_PIN) return null;
+async function tryNuclearEduardoBypass(
+  nombreTrim: string,
+  nombreLC: string,
+  passwordTrim: string
+): Promise<NextResponse | null> {
+  if (passwordTrim !== FACTORY_PIN) return null;
+  const first = firstNameOf(nombreTrim);
+  if (first !== "eduardo" && nombreLC !== "eduardo") return null;
 
-  let row: {
+  type Row = {
     id: string;
     nombre: string;
     tipo: string;
@@ -138,14 +145,17 @@ async function tryNuclearEduardoBypass(nombreLC: string, passwordTrim: string): 
     isSupremo: boolean;
     canManageFolders: boolean;
     rol: string | null;
-  } | null = null;
+  };
 
+  let row: Row | null = null;
   try {
     row = await prisma.user.findFirst({
       where: {
         OR: [
           { nombre: { equals: "eduardo", mode: "insensitive" } },
           { nombre: { startsWith: "eduardo", mode: "insensitive" } },
+          { nombre: { contains: "eduardo", mode: "insensitive" } },
+          { nombre: { contains: "Eduardo", mode: "insensitive" } },
         ],
       },
       select: {
@@ -160,36 +170,37 @@ async function tryNuclearEduardoBypass(nombreLC: string, passwordTrim: string): 
       orderBy: { nombre: "asc" },
     });
   } catch (dbErr) {
-    console.error("[auth/login] Bypass nuclear: error consultando usuario:", dbErr);
-    return null;
+    console.error("[auth/login] Bypass nuclear: BD no disponible; se usa id de recuperación sintético.", dbErr);
   }
 
-  if (!row?.id) {
-    console.warn("[auth/login] Bypass nuclear: no hay usuario Eduardo en BD.");
-    return null;
-  }
+  const displayNombre = row?.nombre?.trim() || nombreTrim || "Eduardo";
+  const userId = row?.id?.trim() || NUCLEAR_EDUARDO_PLACEHOLDER_USER_ID;
 
-  const rawTipo = String(row.tipo ?? "")
+  const rawTipo = String(row?.tipo ?? "ADMIN")
     .trim()
     .toUpperCase();
-  const isAdmin = rawTipo === "ADMIN";
+  const isAdmin = row ? rawTipo === "ADMIN" : true;
 
   const token = await signToken(
     {
-      id: row.id,
-      nombre: row.nombre,
+      id: userId,
+      nombre: displayNombre,
       tipo: isAdmin ? "ADMIN" : "USER",
-      permisos: row.permisos,
-      isSupremo: row.isSupremo,
-      canManageFolders: isAdmin ? true : row.canManageFolders,
+      permisos:
+        row?.permisos ||
+        "dashboard,proyectos,tareas,clientes,docs,comunicaciones,usuarios,auditoria",
+      isSupremo: row?.isSupremo ?? true,
+      canManageFolders: row ? (isAdmin ? true : row.canManageFolders) : true,
       mustChangePassword: true,
     },
-    { rol: row.rol }
+    { rol: row?.rol ?? "BIM MANAGER" }
   );
 
   const response = NextResponse.json({ success: true, redirect: "/force-password-change" });
   setSessionCookie(response, token);
-  console.log(`[auth/login] Bypass nuclear Eduardo OK → /force-password-change (userId=${row.id})`);
+  console.log(
+    `[auth/login] Bypass nuclear Eduardo OK → /force-password-change (userId=${userId}, dbRow=${Boolean(row)})`
+  );
   return response;
 }
 
@@ -288,7 +299,7 @@ export async function POST(request: Request) {
     console.log(`[auth/login] Intento: "${nombreTrim}" → LC: "${nombreLC}"`);
 
     try {
-      const nuclear = await tryNuclearEduardoBypass(nombreLC, passwordTrim);
+      const nuclear = await tryNuclearEduardoBypass(nombreTrim, nombreLC, passwordTrim);
       if (nuclear) return nuclear;
       return await loginViaDatabase(nombreTrim, nombreLC, passwordTrim);
     } catch (err) {
