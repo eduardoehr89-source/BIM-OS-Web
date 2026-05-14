@@ -154,25 +154,20 @@ export async function DELETE(req: Request, ctx: Params) {
   if (!userId) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
 
   const user = await prisma.user.findUnique({ where: { id: userId } });
-  
-  const envAdminPin = String(process.env.ADMIN_PIN ?? "1234").trim();
   const providedPin = String(adminPin).trim();
-  const isEnvAdmin = providedPin === envAdminPin;
-  
-  if (!user && !isEnvAdmin) {
-    console.error("[DELETE /api/projects/[id]] 403: Usuario no encontrado y PIN de rescate no coincide.");
+
+  if (!user) {
+    console.error("[DELETE /api/projects/[id]] 403: Usuario no encontrado.");
     return NextResponse.json({ error: "PIN incorrecto o permisos insuficientes" }, { status: 403 });
   }
   
-  if (user && user.tipo !== "ADMIN" && !isEnvAdmin) {
-    console.error("[DELETE /api/projects/[id]] 403: Usuario no es ADMIN y no usa PIN de rescate.");
+  if (user.tipo !== "ADMIN") {
+    console.error("[DELETE /api/projects/[id]] 403: Usuario no es ADMIN.");
     return NextResponse.json({ error: "PIN incorrecto o permisos insuficientes" }, { status: 403 });
   }
 
-  const isPinValid = (user && user.password === providedPin) || isEnvAdmin;
-
-  if (!isPinValid) {
-    console.error(`[DELETE /api/projects/[id]] 403: PIN incorrecto. Recibido: ${providedPin}, Esperado(Env): ${envAdminPin}, BD: ${user?.password}`);
+  if (user.password !== providedPin) {
+    console.error(`[DELETE /api/projects/[id]] 403: Contraseña incorrecta.`);
     return NextResponse.json({ error: "PIN incorrecto o permisos insuficientes" }, { status: 403 });
   }
 

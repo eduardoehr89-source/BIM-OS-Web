@@ -39,7 +39,16 @@ export function WelcomeLogin() {
         alert(errJson.error || "Usuario o PIN incorrectos");
         return;
       }
-      window.location.href = "/dashboard";
+      let data: { redirect?: string } = {};
+      try {
+        data = await res.json();
+      } catch {}
+
+      if (data.redirect) {
+        window.location.href = data.redirect;
+      } else {
+        window.location.href = "/dashboard";
+      }
     } catch {
       alert("Usuario o contraseña incorrectos");
     } finally {

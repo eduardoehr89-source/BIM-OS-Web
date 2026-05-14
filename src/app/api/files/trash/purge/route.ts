@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUserId } from "@/lib/auth";
 import { projectFileTrashWhere } from "@/lib/project-file-filters";
 
-const TRASH_PURGE_SECURITY_PIN = process.env.ADMIN_PIN || "3350";
+
 
 export async function POST(req: Request) {
   const userId = await getCurrentUserId();
@@ -18,14 +18,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Cuerpo inválido" }, { status: 400 });
   }
 
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { tipo: true } });
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { tipo: true, password: true } });
   const isAdmin = user?.tipo === "ADMIN";
   if (!isAdmin) {
     return NextResponse.json({ error: "Solo los administradores pueden vaciar la papelera" }, { status: 403 });
   }
 
   const pin = typeof body.pin === "string" ? body.pin.trim() : "";
-  if (pin !== TRASH_PURGE_SECURITY_PIN) {
+  if (!user || user.password !== pin) {
     return NextResponse.json({ error: "Acceso Denegado" }, { status: 403 });
   }
 

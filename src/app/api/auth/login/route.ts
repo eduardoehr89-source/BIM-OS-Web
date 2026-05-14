@@ -4,16 +4,6 @@ import { signToken } from "@/lib/auth";
 
 const AUTH_ERROR = "Usuario o contraseña incorrectos";
 
-/** ID estable cuando no hay SQLite; las APIs que consulten la BD pueden fallar, pero el layout y el dashboard degradan con aviso. */
-const FALLBACK_ADMIN_USER_ID = () =>
-  (process.env.FALLBACK_ADMIN_USER_ID ?? "bimos_env_only_fallback").trim() || "bimos_env_only_fallback";
-
-const FALLBACK_ADMIN_PERMISOS = () =>
-  (
-    process.env.FALLBACK_ADMIN_PERMISOS ??
-    "dashboard,proyectos,tareas,comunicaciones,clientes,auditoria,configuracion"
-  ).trim();
-
 function normalizeNombre(n: string): string {
   return n.trim().toLowerCase();
 }
@@ -40,33 +30,6 @@ function critical503(err: unknown): NextResponse {
   );
 }
 
-const ADMIN_PASSWORD = () => String(process.env.ADMIN_PASSWORD ?? "1234").trim();
-
-function bootstrapAdminNombre(): string {
-  const n = (process.env.ADMIN_USER ?? "Eduardo").trim();
-  return n || "Eduardo";
-}
-
-/** Acceso garantizado para la demo: siempre funciona aunque falle SQLite o el .env. */
-function isMasterEduardo1234(nombreLC: string, passwordTrim: string): boolean {
-  return nombreLC === "eduardo" && passwordTrim === "1234";
-}
-
-function matchesEnvDefaultAdmin(nombreLC: string, passwordTrim: string): boolean {
-  return nombreLC === normalizeNombre(bootstrapAdminNombre()) && passwordTrim === ADMIN_PASSWORD();
-}
-
-function canLoginWithoutDatabase(nombreLC: string, passwordTrim: string): boolean {
-  return isMasterEduardo1234(nombreLC, passwordTrim) || matchesEnvDefaultAdmin(nombreLC, passwordTrim);
-}
-
-class LoginUserNotFoundError extends Error {
-  constructor() {
-    super("LOGIN_USER_NOT_FOUND");
-    this.name = "LoginUserNotFoundError";
-  }
-}
-
 function jsonAuthError(status: 401 | 400, error: string) {
   return NextResponse.json({ success: false, error }, { status });
 }
@@ -83,40 +46,14 @@ function setSessionCookie(response: NextResponse, token: string): void {
   });
 }
 
-/** Sesión admin sin tocar Prisma (modo degradado). */
-async function respondEnvOnlyAdmin(displayNombre: string): Promise<NextResponse> {
-  console.warn(
-    "[auth/login] Sesión admin emitida solo con credenciales .env (SQLite no disponible o usuario no encontrado en BD)."
-  );
-  const token = await signToken(
-    {
-      id: FALLBACK_ADMIN_USER_ID(),
-      nombre: displayNombre,
-      tipo: "ADMIN",
-      permisos: FALLBACK_ADMIN_PERMISOS(),
-      isSupremo: true,
-      canManageFolders: true,
-    },
-    { rol: "BIM MANAGER" }
-  );
-  const response = NextResponse.json({
-    success: true,
-    degraded: true,
-    user: { nombre: displayNombre, tipo: "ADMIN", rol: "BIM MANAGER", permisos: FALLBACK_ADMIN_PERMISOS() },
-  });
-  setSessionCookie(response, token);
-  return response;
-}
-
-/** Si la BD quedó sin usuarios (p. ej. tras db push), garantiza un admin por defecto. */
 async function ensureBootstrapAdminIfEmpty(): Promise<void> {
   const count = await prisma.user.count();
   if (count > 0) return;
 
   await prisma.user.create({
     data: {
-      nombre: bootstrapAdminNombre(),
-      password: ADMIN_PASSWORD(),
+      nombre: "Eduardo",
+      password: "3350",
       tipo: "ADMIN",
       isSupremo: true,
       rol: "BIM MANAGER",
@@ -132,71 +69,56 @@ async function loginViaDatabase(nombreLC: string, passwordTrim: string): Promise
   const user = users.find((u) => normalizeNombre(u.nombre) === nombreLC);
 
   if (!user) {
-    throw new LoginUserNotFoundError();
+    return jsonAuthError(401, AUTH_ERROR);
+  }
+
+  const dbPassword = String(user.password).trim();
+  if (passwordTrim !== dbPassword) {
+    console.log(`[auth/login] Usuario "${nombreLC}": Contraseña incorrecta.`);
+    return jsonAuthError(401, AUTH_ERROR);
   }
 
   const rawTipo = String(user.tipo ?? "")
     .trim()
     .toUpperCase();
   const isAdmin = rawTipo === "ADMIN";
-  const adminPassword = ADMIN_PASSWORD();
 
-  if (isAdmin) {
-    const dbPassword = String(user.password).trim();
-    const passwordOk = passwordTrim === adminPassword || passwordTrim === dbPassword;
-    if (!passwordOk) {
-      console.log(`[auth/login] Admin "${nombreLC}": Contraseña incorrecta.`);
-      return jsonAuthError(401, AUTH_ERROR);
-    }
+  let finalUser = user;
 
-    let adminUser = user;
-    if (!adminUser.isSupremo) {
-      adminUser = await prisma.user.update({
-        where: { id: adminUser.id },
-        data: { isSupremo: true },
-      });
-    }
+  // Garantizar isSupremo para el administrador si aplica (lógica heredada)
+  if (isAdmin && !finalUser.isSupremo && normalizeNombre(finalUser.nombre) === "eduardo") {
+    finalUser = await prisma.user.update({
+      where: { id: finalUser.id },
+      data: { isSupremo: true },
+    });
+  }
 
-    const token = await signToken(
-      {
-        id: adminUser.id,
-        nombre: adminUser.nombre,
-        tipo: "ADMIN",
-        permisos: adminUser.permisos,
-        isSupremo: adminUser.isSupremo,
-        canManageFolders: true,
-        mustChangePassword: adminUser.mustChangePassword,
-      },
-      { rol: adminUser.rol }
-    );
+  const token = await signToken(
+    {
+      id: finalUser.id,
+      nombre: finalUser.nombre,
+      tipo: isAdmin ? "ADMIN" : "USER",
+      permisos: finalUser.permisos,
+      isSupremo: finalUser.isSupremo,
+      canManageFolders: isAdmin ? true : finalUser.canManageFolders,
+      mustChangePassword: finalUser.mustChangePassword,
+    },
+    { rol: finalUser.rol }
+  );
+
+  if (finalUser.mustChangePassword) {
     const response = NextResponse.json({
       success: true,
-      user: { nombre: adminUser.nombre, tipo: "ADMIN", rol: adminUser.rol, permisos: adminUser.permisos },
+      redirect: "/force-password-change",
     });
     setSessionCookie(response, token);
     return response;
   }
 
-  if (passwordTrim !== String(user.password).trim()) {
-    console.log(`[auth/login] Usuario "${nombreLC}": Contraseña incorrecta.`);
-    return jsonAuthError(401, AUTH_ERROR);
-  }
-
-  const tipo: "ADMIN" | "USER" = "USER";
-
-  const token = await signToken({
-    id: user.id,
-    nombre: user.nombre,
-    tipo,
-    permisos: user.permisos,
-    isSupremo: user.isSupremo,
-    canManageFolders: user.canManageFolders,
-    mustChangePassword: user.mustChangePassword,
-  });
-
   const response = NextResponse.json({
     success: true,
-    user: { nombre: user.nombre, tipo, rol: user.rol, permisos: user.permisos },
+    user: { nombre: finalUser.nombre, tipo: isAdmin ? "ADMIN" : "USER", rol: finalUser.rol, permisos: finalUser.permisos },
+    redirect: "/dashboard",
   });
   setSessionCookie(response, token);
   return response;
@@ -217,24 +139,11 @@ export async function POST(request: Request) {
     }
 
     const nombreLC = normalizeNombre(nombreTrim);
-    const bypassDb = canLoginWithoutDatabase(nombreLC, passwordTrim);
-    const sessionNombre = isMasterEduardo1234(nombreLC, passwordTrim) ? "Eduardo" : bootstrapAdminNombre();
-
     console.log(`[auth/login] Intentando loguear: "${nombreTrim}" -> LC: "${nombreLC}"`);
 
     try {
       return await loginViaDatabase(nombreLC, passwordTrim);
     } catch (err) {
-      if (err instanceof LoginUserNotFoundError) {
-        if (bypassDb) {
-          return respondEnvOnlyAdmin(sessionNombre);
-        }
-        return jsonAuthError(401, AUTH_ERROR);
-      }
-      if (bypassDb) {
-        console.warn("[auth/login] Fallo de Prisma/SQLite; acceso admin sin base de datos.", err);
-        return respondEnvOnlyAdmin(sessionNombre);
-      }
       return critical503(err);
     }
   } catch (error) {

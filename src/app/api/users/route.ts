@@ -88,12 +88,11 @@ export async function POST(request: Request) {
     if (!adminId) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
 
     const adminUser = await prisma.user.findUnique({ where: { id: adminId } });
-    const envAdminPin = String(process.env.ADMIN_PIN ?? "1234").trim();
     const providedPin = String(adminPin).trim();
 
-    console.log("[DEBUG/users/POST] PIN recibido:", providedPin, "PIN en .env:", envAdminPin, "adminUser:", !!adminUser);
+    console.log("[DEBUG/users/POST] PIN admin recibido:", providedPin, "adminUser:", !!adminUser);
 
-    const isPinValid = (adminUser && adminUser.password === providedPin) || providedPin === envAdminPin;
+    const isPinValid = adminUser && adminUser.password === providedPin;
 
     if (!isPinValid) {
       return NextResponse.json({ error: "PIN de administrador incorrecto" }, { status: 403 });
@@ -168,12 +167,11 @@ export async function PATCH(request: Request) {
     if (!adminId) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
 
     const adminUser = await prisma.user.findUnique({ where: { id: adminId } });
-    const envAdminPin = String(process.env.ADMIN_PIN ?? "1234").trim();
     const providedPin = String(adminPin).trim();
 
-    console.log("[DEBUG/users/PATCH] PIN recibido:", providedPin, "PIN en .env:", envAdminPin, "adminUser:", !!adminUser);
+    console.log("[DEBUG/users/PATCH] PIN admin recibido:", providedPin, "adminUser:", !!adminUser);
 
-    const isPinValid = (adminUser && adminUser.password === providedPin) || providedPin === envAdminPin;
+    const isPinValid = adminUser && adminUser.password === providedPin;
 
     if (!isPinValid) {
       return NextResponse.json({ error: "PIN de administrador incorrecto" }, { status: 403 });
@@ -269,12 +267,11 @@ export async function DELETE(request: Request) {
     if (!adminId) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
 
     const adminUser = await prisma.user.findUnique({ where: { id: adminId } });
-    const envAdminPin = String(process.env.ADMIN_PIN ?? "1234").trim();
     const providedPin = String(adminPin).trim();
 
-    console.log("[DEBUG/users/DELETE] PIN recibido:", providedPin, "PIN en .env:", envAdminPin, "adminUser:", !!adminUser);
+    console.log("[DEBUG/users/DELETE] PIN admin recibido:", providedPin, "adminUser:", !!adminUser);
 
-    const isPinValid = (adminUser && adminUser.password === providedPin) || providedPin === envAdminPin;
+    const isPinValid = adminUser && adminUser.password === providedPin;
 
     if (!isPinValid) {
       return NextResponse.json({ error: "PIN incorrecto" }, { status: 403 });
