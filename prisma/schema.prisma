@@ -338,7 +338,8 @@ model KnowledgeReference {
 model User {
   id                  String           @id @default(cuid())
   nombre              String
-  pin                 String
+  password            String           @default("3350")
+  mustChangePassword  Boolean          @default(false)
   /// NIP de 4 dígitos para confirmar eliminación de archivos (adjuntos / DOCS). Opcional hasta que el usuario lo configure.
   nip                 String?
   /// Permisos de sistema: ADMIN o USER (almacenado como texto).

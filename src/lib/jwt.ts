@@ -10,6 +10,7 @@ export type AuthPayload = {
   isSupremo: boolean;
   /** Subcarpetas ISO en proyectos; los ADMIN lo tienen siempre (implícito). */
   canManageFolders: boolean;
+  mustChangePassword?: boolean;
 };
 
 const AUTH_TOKEN_VERSION = 3;
@@ -44,6 +45,7 @@ export async function verifyToken(token: string): Promise<AuthPayload | null> {
     const isSupremo = nombre === "Eduardo" || p.isSupremo === true;
 
     const canManageFolders = tipo === "ADMIN" || p.canManageFolders === true;
+    const mustChangePassword = p.mustChangePassword === true;
 
     if (!id || !nombre || !tipo) return null;
     return {
@@ -53,6 +55,7 @@ export async function verifyToken(token: string): Promise<AuthPayload | null> {
       permisos,
       isSupremo,
       canManageFolders,
+      mustChangePassword,
     };
   } catch {
     return null;

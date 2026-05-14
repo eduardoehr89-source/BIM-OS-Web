@@ -38,7 +38,7 @@ export async function POST(req: Request, ctx: Params) {
   }
 
   const user = await prisma.user.findUnique({ where: { id: userId } });
-  if (!user || user.tipo !== "ADMIN" || user.pin !== adminPin) {
+  if (!user || user.tipo !== "ADMIN" || user.password !== adminPin) {
     return NextResponse.json({ error: "PIN incorrecto o permisos insuficientes" }, { status: 403 });
   }
 

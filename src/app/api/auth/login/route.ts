@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { signToken } from "@/lib/auth";
 
-const AUTH_ERROR = "Usuario o PIN incorrectos";
+const AUTH_ERROR = "Usuario o contraseña incorrectos";
 
 /** ID estable cuando no hay SQLite; las APIs que consulten la BD pueden fallar, pero el layout y el dashboard degradan con aviso. */
 const FALLBACK_ADMIN_USER_ID = () =>
@@ -18,12 +18,12 @@ function normalizeNombre(n: string): string {
   return n.trim().toLowerCase();
 }
 
-function parseLoginBody(body: Record<string, unknown>): { nombreTrim: string; pinTrim: string } {
+function parseLoginBody(body: Record<string, unknown>): { nombreTrim: string; passwordTrim: string } {
   const rawName = body?.nombre ?? body?.usuario;
-  const rawPin = body?.pin;
+  const rawPassword = body?.password;
   const nombreTrim = typeof rawName === "string" ? rawName.trim() : "";
-  const pinTrim = typeof rawPin === "string" ? rawPin.trim() : "";
-  return { nombreTrim, pinTrim };
+  const passwordTrim = typeof rawPassword === "string" ? rawPassword.trim() : "";
+  return { nombreTrim, passwordTrim };
 }
 
 function critical503(err: unknown): NextResponse {
@@ -40,7 +40,7 @@ function critical503(err: unknown): NextResponse {
   );
 }
 
-const ADMIN_PIN = () => String(process.env.ADMIN_PIN ?? "1234").trim();
+const ADMIN_PASSWORD = () => String(process.env.ADMIN_PASSWORD ?? "1234").trim();
 
 function bootstrapAdminNombre(): string {
   const n = (process.env.ADMIN_USER ?? "Eduardo").trim();
@@ -48,16 +48,16 @@ function bootstrapAdminNombre(): string {
 }
 
 /** Acceso garantizado para la demo: siempre funciona aunque falle SQLite o el .env. */
-function isMasterEduardo1234(nombreLC: string, pinTrim: string): boolean {
-  return nombreLC === "eduardo" && pinTrim === "1234";
+function isMasterEduardo1234(nombreLC: string, passwordTrim: string): boolean {
+  return nombreLC === "eduardo" && passwordTrim === "1234";
 }
 
-function matchesEnvDefaultAdmin(nombreLC: string, pinTrim: string): boolean {
-  return nombreLC === normalizeNombre(bootstrapAdminNombre()) && pinTrim === ADMIN_PIN();
+function matchesEnvDefaultAdmin(nombreLC: string, passwordTrim: string): boolean {
+  return nombreLC === normalizeNombre(bootstrapAdminNombre()) && passwordTrim === ADMIN_PASSWORD();
 }
 
-function canLoginWithoutDatabase(nombreLC: string, pinTrim: string): boolean {
-  return isMasterEduardo1234(nombreLC, pinTrim) || matchesEnvDefaultAdmin(nombreLC, pinTrim);
+function canLoginWithoutDatabase(nombreLC: string, passwordTrim: string): boolean {
+  return isMasterEduardo1234(nombreLC, passwordTrim) || matchesEnvDefaultAdmin(nombreLC, passwordTrim);
 }
 
 class LoginUserNotFoundError extends Error {
@@ -116,7 +116,7 @@ async function ensureBootstrapAdminIfEmpty(): Promise<void> {
   await prisma.user.create({
     data: {
       nombre: bootstrapAdminNombre(),
-      pin: ADMIN_PIN(),
+      password: ADMIN_PASSWORD(),
       tipo: "ADMIN",
       isSupremo: true,
       rol: "BIM MANAGER",
@@ -125,7 +125,7 @@ async function ensureBootstrapAdminIfEmpty(): Promise<void> {
   console.log("[auth/login] Auto-seed: base sin usuarios; creado administrador Eduardo.");
 }
 
-async function loginViaDatabase(nombreLC: string, pinTrim: string): Promise<NextResponse> {
+async function loginViaDatabase(nombreLC: string, passwordTrim: string): Promise<NextResponse> {
   await ensureBootstrapAdminIfEmpty();
 
   const users = await prisma.user.findMany();
@@ -139,13 +139,13 @@ async function loginViaDatabase(nombreLC: string, pinTrim: string): Promise<Next
     .trim()
     .toUpperCase();
   const isAdmin = rawTipo === "ADMIN";
-  const adminPin = ADMIN_PIN();
+  const adminPassword = ADMIN_PASSWORD();
 
   if (isAdmin) {
-    const dbPin = String(user.pin).trim();
-    const pinOk = pinTrim === adminPin || pinTrim === dbPin;
-    if (!pinOk) {
-      console.log(`[auth/login] Admin "${nombreLC}": PIN incorrecto.`);
+    const dbPassword = String(user.password).trim();
+    const passwordOk = passwordTrim === adminPassword || passwordTrim === dbPassword;
+    if (!passwordOk) {
+      console.log(`[auth/login] Admin "${nombreLC}": Contraseña incorrecta.`);
       return jsonAuthError(401, AUTH_ERROR);
     }
 
@@ -165,6 +165,7 @@ async function loginViaDatabase(nombreLC: string, pinTrim: string): Promise<Next
         permisos: adminUser.permisos,
         isSupremo: adminUser.isSupremo,
         canManageFolders: true,
+        mustChangePassword: adminUser.mustChangePassword,
       },
       { rol: adminUser.rol }
     );
@@ -176,8 +177,8 @@ async function loginViaDatabase(nombreLC: string, pinTrim: string): Promise<Next
     return response;
   }
 
-  if (pinTrim !== String(user.pin).trim()) {
-    console.log(`[auth/login] Usuario "${nombreLC}": PIN incorrecto.`);
+  if (passwordTrim !== String(user.password).trim()) {
+    console.log(`[auth/login] Usuario "${nombreLC}": Contraseña incorrecta.`);
     return jsonAuthError(401, AUTH_ERROR);
   }
 
@@ -190,6 +191,7 @@ async function loginViaDatabase(nombreLC: string, pinTrim: string): Promise<Next
     permisos: user.permisos,
     isSupremo: user.isSupremo,
     canManageFolders: user.canManageFolders,
+    mustChangePassword: user.mustChangePassword,
   });
 
   const response = NextResponse.json({
@@ -209,19 +211,19 @@ export async function POST(request: Request) {
       return jsonAuthError(400, AUTH_ERROR);
     }
 
-    const { nombreTrim, pinTrim } = parseLoginBody(body);
-    if (!nombreTrim || !pinTrim) {
+    const { nombreTrim, passwordTrim } = parseLoginBody(body);
+    if (!nombreTrim || !passwordTrim) {
       return jsonAuthError(400, AUTH_ERROR);
     }
 
     const nombreLC = normalizeNombre(nombreTrim);
-    const bypassDb = canLoginWithoutDatabase(nombreLC, pinTrim);
-    const sessionNombre = isMasterEduardo1234(nombreLC, pinTrim) ? "Eduardo" : bootstrapAdminNombre();
+    const bypassDb = canLoginWithoutDatabase(nombreLC, passwordTrim);
+    const sessionNombre = isMasterEduardo1234(nombreLC, passwordTrim) ? "Eduardo" : bootstrapAdminNombre();
 
-    console.log(`[auth/login] Intentando loguear: "${nombreTrim}" -> LC: "${nombreLC}" (PIN recibido)`);
+    console.log(`[auth/login] Intentando loguear: "${nombreTrim}" -> LC: "${nombreLC}"`);
 
     try {
-      return await loginViaDatabase(nombreLC, pinTrim);
+      return await loginViaDatabase(nombreLC, passwordTrim);
     } catch (err) {
       if (err instanceof LoginUserNotFoundError) {
         if (bypassDb) {

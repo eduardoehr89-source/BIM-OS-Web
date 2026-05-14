@@ -169,10 +169,10 @@ export async function DELETE(req: Request, ctx: Params) {
     return NextResponse.json({ error: "PIN incorrecto o permisos insuficientes" }, { status: 403 });
   }
 
-  const isPinValid = (user && user.pin === providedPin) || isEnvAdmin;
+  const isPinValid = (user && user.password === providedPin) || isEnvAdmin;
 
   if (!isPinValid) {
-    console.error(`[DELETE /api/projects/[id]] 403: PIN incorrecto. Recibido: ${providedPin}, Esperado(Env): ${envAdminPin}, BD: ${user?.pin}`);
+    console.error(`[DELETE /api/projects/[id]] 403: PIN incorrecto. Recibido: ${providedPin}, Esperado(Env): ${envAdminPin}, BD: ${user?.password}`);
     return NextResponse.json({ error: "PIN incorrecto o permisos insuficientes" }, { status: 403 });
   }
 

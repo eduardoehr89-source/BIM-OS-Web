@@ -93,7 +93,7 @@ export async function POST(request: Request) {
 
     console.log("[DEBUG/users/POST] PIN recibido:", providedPin, "PIN en .env:", envAdminPin, "adminUser:", !!adminUser);
 
-    const isPinValid = (adminUser && adminUser.pin === providedPin) || providedPin === envAdminPin;
+    const isPinValid = (adminUser && adminUser.password === providedPin) || providedPin === envAdminPin;
 
     if (!isPinValid) {
       return NextResponse.json({ error: "PIN de administrador incorrecto" }, { status: 403 });
@@ -113,7 +113,7 @@ export async function POST(request: Request) {
     const user = await prisma.user.create({
       data: {
         nombre: String(nombre).trim(),
-        pin: String(pin).trim(),
+        password: String(pin).trim(),
         tipo: t,
         rol: rolNorm,
         permisos: permisos || "dashboard",
@@ -173,7 +173,7 @@ export async function PATCH(request: Request) {
 
     console.log("[DEBUG/users/PATCH] PIN recibido:", providedPin, "PIN en .env:", envAdminPin, "adminUser:", !!adminUser);
 
-    const isPinValid = (adminUser && adminUser.pin === providedPin) || providedPin === envAdminPin;
+    const isPinValid = (adminUser && adminUser.password === providedPin) || providedPin === envAdminPin;
 
     if (!isPinValid) {
       return NextResponse.json({ error: "PIN de administrador incorrecto" }, { status: 403 });
@@ -217,8 +217,8 @@ export async function PATCH(request: Request) {
     
     let pinChanged = false;
     if (pinTrim) {
-      data.pin = pinTrim;
-      if (pinTrim !== existing.pin) {
+      data.password = pinTrim;
+      if (pinTrim !== existing.password) {
         pinChanged = true;
       }
     }
@@ -274,7 +274,7 @@ export async function DELETE(request: Request) {
 
     console.log("[DEBUG/users/DELETE] PIN recibido:", providedPin, "PIN en .env:", envAdminPin, "adminUser:", !!adminUser);
 
-    const isPinValid = (adminUser && adminUser.pin === providedPin) || providedPin === envAdminPin;
+    const isPinValid = (adminUser && adminUser.password === providedPin) || providedPin === envAdminPin;
 
     if (!isPinValid) {
       return NextResponse.json({ error: "PIN incorrecto" }, { status: 403 });

@@ -11,6 +11,7 @@ export default async function MainLayout({ children }: { children: ReactNode }) 
   let userPermisos = "";
   let isSupremo = false;
   let hasSession = false;
+  let mustChangePassword = false;
 
   try {
     const cookieStore = await cookies();
@@ -23,6 +24,7 @@ export default async function MainLayout({ children }: { children: ReactNode }) 
           userName = payload.nombre;
           userPermisos = payload.permisos;
           isSupremo = payload.isSupremo;
+          mustChangePassword = payload.mustChangePassword ?? false;
           hasSession = true;
         }
       } catch {
@@ -41,6 +43,10 @@ export default async function MainLayout({ children }: { children: ReactNode }) 
 
   if (!hasSession) {
     redirect("/login");
+  }
+
+  if (mustChangePassword) {
+    redirect("/force-password-change");
   }
 
   return (

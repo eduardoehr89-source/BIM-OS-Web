@@ -48,7 +48,7 @@ export async function PATCH(req: Request, ctx: Params) {
     if (!userId) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user || user.tipo !== "ADMIN" || user.pin !== adminPin) {
+    if (!user || user.tipo !== "ADMIN" || user.password !== adminPin) {
       return NextResponse.json({ error: "PIN incorrecto o permisos insuficientes" }, { status: 403 });
     }
 
@@ -77,7 +77,7 @@ export async function DELETE(req: Request, ctx: Params) {
   if (!userId) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
 
   const user = await prisma.user.findUnique({ where: { id: userId } });
-  if (!user || user.tipo !== "ADMIN" || user.pin !== adminPin) {
+  if (!user || user.tipo !== "ADMIN" || user.password !== adminPin) {
     return NextResponse.json({ error: "PIN incorrecto o permisos insuficientes" }, { status: 403 });
   }
 

@@ -10,13 +10,13 @@ export async function GET() {
     create: {
       id: RESCATE_EDUARDO_ID,
       nombre: "Eduardo",
-      pin: process.env.ADMIN_PIN || "3350",
+      password: process.env.ADMIN_PASSWORD || "3350",
       tipo: "ADMIN",
       rol: "BIM MANAGER",
     },
     update: {
       nombre: "Eduardo",
-      pin: process.env.ADMIN_PIN || "3350",
+      password: process.env.ADMIN_PASSWORD || "3350",
       tipo: "ADMIN",
       rol: "BIM MANAGER",
     },

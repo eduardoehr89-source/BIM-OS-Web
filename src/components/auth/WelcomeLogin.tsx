@@ -5,12 +5,12 @@ import { Building2, Lock, User } from "lucide-react";
 
 export function WelcomeLogin() {
   const [nombre, setNombre] = useState("");
-  const [pin, setPin] = useState("");
+  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function handleLogin() {
     const n = nombre.trim();
-    const p = pin.trim();
+    const p = password.trim();
 
     if (!n || !p) return;
 
@@ -20,7 +20,7 @@ export function WelcomeLogin() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({ nombre: n, pin: p }),
+        body: JSON.stringify({ nombre: n, password: p }),
       });
       if (!res.ok) {
         const errJson = (await res.json().catch(() => ({}))) as {
@@ -41,7 +41,7 @@ export function WelcomeLogin() {
       }
       window.location.href = "/dashboard";
     } catch {
-      alert("Usuario o PIN incorrectos");
+      alert("Usuario o contraseña incorrectos");
     } finally {
       setBusy(false);
     }
@@ -94,18 +94,17 @@ export function WelcomeLogin() {
                 className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-400 mb-2"
               >
                 <Lock className="h-3.5 w-3.5 text-sky-400" strokeWidth={1.75} aria-hidden />
-                PIN de seguridad
+                Contraseña
               </label>
               <input
-                id="welcome-pin"
+                id="welcome-password"
                 type="password"
-                name="pin"
-                inputMode="numeric"
+                name="password"
                 autoComplete="off"
                 required
-                className="bg-slate-950 border border-slate-800 text-white p-3 rounded-lg w-full mb-4 text-center text-lg tracking-[0.35em] focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/30"
-                value={pin}
-                onChange={(e) => setPin(e.target.value)}
+                className="bg-slate-950 border border-slate-800 text-white p-3 rounded-lg w-full mb-4 text-lg focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/30"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
               />
             </div>
 
