@@ -74,16 +74,14 @@ async function loginViaDatabase(nombreLC: string, passwordTrim: string): Promise
   }
 
   const dbPassword = String(user.password).trim();
-  let passwordOk = passwordTrim === dbPassword;
+  let passwordOk = false;
 
-  if (!passwordOk && dbPassword.startsWith("$2a$")) {
-    passwordOk = bcrypt.compareSync(passwordTrim, dbPassword);
-  }
-
-  // Bypass temporal por migración de PIN a password
-  if (!passwordOk && user.mustChangePassword) {
-    if (/^\d{4}$/.test(passwordTrim)) {
-      passwordOk = true;
+  if (user.mustChangePassword) {
+    passwordOk = passwordTrim === dbPassword;
+  } else {
+    passwordOk = passwordTrim === dbPassword;
+    if (!passwordOk && dbPassword.startsWith("$2a$")) {
+      passwordOk = bcrypt.compareSync(passwordTrim, dbPassword);
     }
   }
 
