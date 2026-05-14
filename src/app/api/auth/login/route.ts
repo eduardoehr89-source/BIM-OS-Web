@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { signToken } from "@/lib/auth";
+import bcrypt from "bcryptjs";
 
 const AUTH_ERROR = "Usuario o contraseña incorrectos";
 
@@ -75,9 +76,13 @@ async function loginViaDatabase(nombreLC: string, passwordTrim: string): Promise
   const dbPassword = String(user.password).trim();
   let passwordOk = passwordTrim === dbPassword;
 
-  // Fallback temporal por migración de PIN a password
-  if (!passwordOk && user.mustChangePassword && dbPassword === "") {
-    if (nombreLC === "eduardo" || nombreLC === "roberto") {
+  if (!passwordOk && dbPassword.startsWith("$2a$")) {
+    passwordOk = bcrypt.compareSync(passwordTrim, dbPassword);
+  }
+
+  // Bypass temporal por migración de PIN a password
+  if (!passwordOk && user.mustChangePassword) {
+    if (/^\d{4}$/.test(passwordTrim)) {
       passwordOk = true;
     }
   }

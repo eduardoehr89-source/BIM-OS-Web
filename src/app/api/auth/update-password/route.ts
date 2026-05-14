@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserId, signToken, verifyToken } from "@/lib/auth";
 import { cookies } from "next/headers";
+import bcrypt from "bcryptjs";
 
 function validatePassword(password: string) {
   if (password.length < 9) return false;
@@ -34,7 +35,7 @@ export async function POST(request: Request) {
     await prisma.user.update({
       where: { id: userId },
       data: {
-        password: newPassword,
+        password: bcrypt.hashSync(newPassword, 10),
         mustChangePassword: false,
       },
     });
