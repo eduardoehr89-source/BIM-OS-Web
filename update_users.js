@@ -1,18 +1,20 @@
-const { PrismaClient } = require('./src/generated/prisma');
+const { PrismaClient } = require("./src/generated/prisma");
 const prisma = new PrismaClient();
 
 async function main() {
-  await prisma.user.updateMany({
+  const result = await prisma.user.updateMany({
     where: {
-      nombre: {
-        in: ['eduardo', 'roberto']
-      }
+      OR: [
+        { nombre: { equals: "eduardo", mode: "insensitive" } },
+        { nombre: { equals: "roberto", mode: "insensitive" } },
+      ],
     },
     data: {
-      mustChangePassword: true
-    }
+      mustChangePassword: true,
+      password: "3350",
+    },
   });
-  console.log('Users updated');
+  console.log(`Users updated: ${result.count}`);
 }
 
 main().catch(console.error).finally(() => prisma.$disconnect());

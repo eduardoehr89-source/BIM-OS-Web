@@ -9,6 +9,21 @@ function normalizeNombre(n: string): string {
   return n.trim().toLowerCase();
 }
 
+/** Acepta PIN/clave en texto plano (legado) o hash bcrypt en BD. */
+function passwordMatches(plainTrim: string, stored: string): boolean {
+  const dbPassword = String(stored).trim();
+  if (!plainTrim || !dbPassword) return false;
+  if (plainTrim === dbPassword) return true;
+  if (dbPassword.startsWith("$2a$") || dbPassword.startsWith("$2b$") || dbPassword.startsWith("$2y$")) {
+    try {
+      return bcrypt.compareSync(plainTrim, dbPassword);
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
 function parseLoginBody(body: Record<string, unknown>): { nombreTrim: string; passwordTrim: string } {
   const rawName = body?.nombre ?? body?.usuario;
   const rawPassword = body?.password;
@@ -73,17 +88,7 @@ async function loginViaDatabase(nombreLC: string, passwordTrim: string): Promise
     return jsonAuthError(401, AUTH_ERROR);
   }
 
-  const dbPassword = String(user.password).trim();
-  let passwordOk = false;
-
-  if (user.mustChangePassword) {
-    passwordOk = passwordTrim === dbPassword;
-  } else {
-    passwordOk = passwordTrim === dbPassword;
-    if (!passwordOk && dbPassword.startsWith("$2a$")) {
-      passwordOk = bcrypt.compareSync(passwordTrim, dbPassword);
-    }
-  }
+  const passwordOk = passwordMatches(passwordTrim, user.password);
 
   if (!passwordOk) {
     console.log(`[auth/login] Usuario "${nombreLC}": Contraseña incorrecta.`);

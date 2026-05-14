@@ -43,6 +43,10 @@ export default async function proxy(request: NextRequest) {
     return login;
   }
 
+  if (payload.mustChangePassword && pathname !== "/force-password-change") {
+    return NextResponse.redirect(new URL("/force-password-change", request.url));
+  }
+
   const response = NextResponse.next();
   response.headers.set("x-user-rol", payload.tipo);
   response.headers.set("x-user-supremo", payload.isSupremo ? "1" : "0");

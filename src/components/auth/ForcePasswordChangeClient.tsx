@@ -2,14 +2,13 @@
 
 import { useState } from "react";
 import { Lock, ShieldAlert, CheckCircle2, AlertCircle } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { validateNewPassword } from "@/lib/password-policy";
 
 export function ForcePasswordChangeClient() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const router = useRouter();
 
   const rules = [
     { label: "Mínimo 9 caracteres", valid: password.length >= 9 },
@@ -18,11 +17,11 @@ export function ForcePasswordChangeClient() {
     { label: "Al menos un símbolo (ej. !@#$%^&*)", valid: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]+/.test(password) },
   ];
 
-  const allRulesValid = rules.every((r) => r.valid);
+  const allRulesValid = validateNewPassword(password);
 
   async function handleSubmit() {
     setError(null);
-    if (!allRulesValid) {
+    if (!validateNewPassword(password)) {
       setError("La contraseña no cumple con los requisitos de seguridad.");
       return;
     }
@@ -36,6 +35,7 @@ export function ForcePasswordChangeClient() {
       const res = await fetch("/api/auth/update-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({ password }),
       });
 

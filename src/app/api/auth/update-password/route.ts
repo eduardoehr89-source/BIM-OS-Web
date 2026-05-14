@@ -1,16 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUserId, signToken, verifyToken } from "@/lib/auth";
-import { cookies } from "next/headers";
+import { getCurrentUserId, signToken } from "@/lib/auth";
 import bcrypt from "bcryptjs";
-
-function validatePassword(password: string) {
-  if (password.length < 9) return false;
-  if (!/[A-Z]/.test(password)) return false;
-  if (!/[0-9]/.test(password)) return false;
-  if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]+/.test(password)) return false;
-  return true;
-}
+import { validateNewPassword } from "@/lib/password-policy";
 
 export async function POST(request: Request) {
   try {
@@ -22,46 +14,42 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({}));
     const newPassword = body.password;
 
-    if (!newPassword || typeof newPassword !== "string" || !validatePassword(newPassword)) {
+    if (!newPassword || typeof newPassword !== "string" || !validateNewPassword(newPassword)) {
       return NextResponse.json({ success: false, error: "Contraseña inválida" }, { status: 400 });
     }
 
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user) {
+    const existing = await prisma.user.findUnique({ where: { id: userId } });
+    if (!existing) {
       return NextResponse.json({ success: false, error: "Usuario no encontrado" }, { status: 404 });
     }
 
-    // Update the database
-    await prisma.user.update({
+    const hashed = bcrypt.hashSync(newPassword, 10);
+
+    const user = await prisma.user.update({
       where: { id: userId },
       data: {
-        password: bcrypt.hashSync(newPassword, 10),
+        password: hashed,
         mustChangePassword: false,
       },
     });
 
-    // Sign a new token
-    const cookieStore = await cookies();
-    const currentToken = cookieStore.get("bimos_session")?.value;
-    let oldPayload = null;
-    if (currentToken) {
-      oldPayload = await verifyToken(currentToken);
-    }
+    const rawTipo = String(user.tipo ?? "")
+      .trim()
+      .toUpperCase();
+    const isAdmin = rawTipo === "ADMIN";
 
-    const tipo = oldPayload?.tipo || "USER";
-    const permisos = oldPayload?.permisos || user.permisos;
-    const isSupremo = oldPayload?.isSupremo || user.isSupremo;
-    const canManageFolders = oldPayload?.canManageFolders || user.canManageFolders;
-
-    const token = await signToken({
-      id: user.id,
-      nombre: user.nombre,
-      tipo,
-      permisos,
-      isSupremo,
-      canManageFolders,
-      mustChangePassword: false,
-    });
+    const token = await signToken(
+      {
+        id: user.id,
+        nombre: user.nombre,
+        tipo: isAdmin ? "ADMIN" : "USER",
+        permisos: user.permisos,
+        isSupremo: user.isSupremo,
+        canManageFolders: isAdmin ? true : user.canManageFolders,
+        mustChangePassword: false,
+      },
+      { rol: user.rol }
+    );
 
     const response = NextResponse.json({ success: true });
     
