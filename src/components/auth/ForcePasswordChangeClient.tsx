@@ -1,171 +1,146 @@
 "use client";
 
-import { useState } from "react";
-import { Lock, ShieldAlert, CheckCircle2, AlertCircle } from "lucide-react";
-import { validateNewPassword } from "@/lib/password-policy";
+import React, { useState } from "react";
+import { useRouter } from "next/navigation";
+
+interface Req { label: string; test: (v: string) => boolean }
+
+const REQUIREMENTS: Req[] = [
+  { label: "Mínimo 9 caracteres",   test: (v) => v.length >= 9 },
+  { label: "Una letra mayúscula",   test: (v) => /[A-Z]/.test(v) },
+  { label: "Un número",             test: (v) => /[0-9]/.test(v) },
+  { label: "Un símbolo (@, #, !…)", test: (v) => /[^A-Za-z0-9]/.test(v) },
+];
+
+function EyeIcon({ open }: { open: boolean }) {
+  return open ? (
+    <svg xmlns="http://www.w3.org/2000/svg" width={18} height={18} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+      <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+      <line x1="1" y1="1" x2="23" y2="23"/>
+    </svg>
+  ) : (
+    <svg xmlns="http://www.w3.org/2000/svg" width={18} height={18} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+      <circle cx="12" cy="12" r="3"/>
+    </svg>
+  );
+}
 
 export function ForcePasswordChangeClient() {
+  const router = useRouter();
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [showPwd, setShowPwd]   = useState(false);
+  const [loading, setLoading]   = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
+  const [success, setSuccess]   = useState(false);
 
-  const rules = [
-    { label: "Mínimo 9 caracteres", valid: password.length >= 9 },
-    { label: "Al menos una letra mayúscula", valid: /[A-Z]/.test(password) },
-    { label: "Al menos un número", valid: /[0-9]/.test(password) },
-    { label: "Al menos un símbolo (ej. !@#$%^&*)", valid: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]+/.test(password) },
-  ];
-
-  const allRulesValid = validateNewPassword(password);
-
-  async function handleLogout() {
-    setBusy(true);
-    setError(null);
-    try {
-      await fetch("/api/auth/logout", {
-        method: "POST",
-        credentials: "same-origin",
-      });
-    } catch {
-      // Aun falle la red, forzamos salida al inicio
-    } finally {
-      window.location.href = "/";
-    }
-  }
+  const allPassed = REQUIREMENTS.every((r) => r.test(password));
 
   async function handleSubmit() {
-    setError(null);
-    if (!validateNewPassword(password)) {
-      setError("La contraseña no cumple con los requisitos de seguridad.");
-      return;
-    }
-    if (password !== confirmPassword) {
-      setError("Las contraseñas no coinciden.");
-      return;
-    }
-
-    setBusy(true);
+    if (!allPassed || loading) return;
+    setLoading(true);
+    setApiError(null);
     try {
       const res = await fetch("/api/auth/change-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
         body: JSON.stringify({ newPassword: password }),
       });
-
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}));
-        setError(errJson.error || "Ocurrió un error al actualizar la contraseña.");
-        return;
-      }
-      
-      // La actualización de contraseña reemitirá la cookie sin 'mustChangePassword'
-      // o invalidará la sesión. Para que funcione transparente, recargamos hacia el dashboard.
-      window.location.href = "/dashboard";
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setApiError(data?.error ?? `Error ${res.status}.`); return; }
+      setSuccess(true);
+      setTimeout(() => router.push("/dashboard"), 1500);
     } catch {
-      setError("Error de red al actualizar la contraseña.");
+      setApiError("Error de red. Verifica tu conexión e intenta de nuevo.");
     } finally {
-      setBusy(false);
+      setLoading(false);
     }
   }
 
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => null);
+    router.push("/login");
+  }
+
+  if (success) {
+    return (
+      <div style={styles.root}>
+        <div style={styles.card}>
+          <div style={{ fontSize: 40, textAlign: "center" }}>✅</div>
+          <p style={{ ...styles.subtitle, textAlign: "center", marginTop: 12 }}>Contraseña actualizada. Redirigiendo…</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#020617] px-4">
-      <div className="w-full max-w-md">
-        <div className="mb-8 text-center">
-          <div className="mx-auto mb-6 flex h-14 w-14 items-center justify-center rounded-xl border border-red-500/30 bg-red-500/10 shadow-lg">
-            <ShieldAlert className="h-7 w-7 text-red-400" strokeWidth={1.5} aria-hidden />
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">Actualización Obligatoria</h1>
-          <p className="mt-2 text-sm text-slate-400 sm:text-base">Debes actualizar tu contraseña para continuar accediendo al sistema.</p>
-          <div className="mt-4 flex justify-center">
-            <button
-              type="button"
-              onClick={() => void handleLogout()}
-              className="text-xs text-slate-500 underline decoration-slate-600 underline-offset-2 hover:text-slate-300"
-            >
-              Cerrar Sesión
-            </button>
-          </div>
+    <div style={styles.root}>
+      <div style={styles.card}>
+        <div style={{ marginBottom: 24 }}>
+          <h1 style={styles.title}>Configura tu contraseña</h1>
+          <p style={styles.subtitle}>Elige una contraseña segura para continuar a la plataforma.</p>
         </div>
 
-        <form
-          autoComplete="off"
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleSubmit();
-          }}
-          className="bg-slate-900/60 backdrop-blur-xl border border-slate-800 p-10 rounded-3xl shadow-2xl w-full max-w-md"
+        <label style={styles.label}>Nueva contraseña</label>
+        <div style={styles.inputWrapper}>
+          <input
+            type={showPwd ? "text" : "password"}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Mín. 9 caracteres"
+            style={styles.input}
+            disabled={loading}
+            onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+          />
+          <button type="button" onClick={() => setShowPwd((v) => !v)} style={styles.eyeBtn}>
+            <EyeIcon open={showPwd} />
+          </button>
+        </div>
+
+        {password.length > 0 && (
+          <ul style={styles.reqList}>
+            {REQUIREMENTS.map((r) => (
+              <li key={r.label} style={{ ...styles.reqItem, color: r.test(password) ? "#22c55e" : "#94a3b8" }}>
+                <span style={{ marginRight: 6 }}>{r.test(password) ? "✓" : "○"}</span>{r.label}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {apiError && <div style={styles.errorBox}>{apiError}</div>}
+
+        <button
+          type="button"
+          onClick={handleSubmit}
+          disabled={!allPassed || loading}
+          style={{ ...styles.primaryBtn, opacity: !allPassed || loading ? 0.5 : 1, cursor: !allPassed || loading ? "not-allowed" : "pointer" }}
         >
-          {error && (
-            <div className="mb-6 flex items-start gap-3 rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-400">
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              <p>{error}</p>
-            </div>
-          )}
+          {loading ? "Guardando…" : "Guardar contraseña"}
+        </button>
 
-          <div className="space-y-4">
-            <div>
-              <label
-                htmlFor="new-password"
-                className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-400 mb-2"
-              >
-                <Lock className="h-3.5 w-3.5 text-sky-400" strokeWidth={1.75} aria-hidden />
-                Nueva contraseña
-              </label>
-              <input
-                id="new-password"
-                type="password"
-                required
-                autoFocus
-                className="bg-slate-950 border border-slate-800 text-white p-3 rounded-lg w-full mb-2 text-lg focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/30"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </div>
-            
-            <div className="space-y-2 mb-4 bg-slate-950/50 p-4 rounded-lg border border-slate-800/50">
-              {rules.map((rule, idx) => (
-                <div key={idx} className="flex items-center gap-2 text-xs">
-                  {rule.valid ? (
-                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-                  ) : (
-                    <div className="h-3.5 w-3.5 rounded-full border border-slate-600 shrink-0" />
-                  )}
-                  <span className={rule.valid ? "text-slate-300" : "text-slate-500"}>{rule.label}</span>
-                </div>
-              ))}
-            </div>
-
-            <div>
-              <label
-                htmlFor="confirm-password"
-                className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-400 mb-2"
-              >
-                <Lock className="h-3.5 w-3.5 text-slate-400" strokeWidth={1.75} aria-hidden />
-                Confirmar contraseña
-              </label>
-              <input
-                id="confirm-password"
-                type="password"
-                required
-                className="bg-slate-950 border border-slate-800 text-white p-3 rounded-lg w-full mb-4 text-lg focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/30"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={busy || !allRulesValid || password !== confirmPassword}
-              className="bg-sky-600 hover:bg-sky-500 text-white font-bold py-3 rounded-lg w-full transition-all shadow-lg disabled:pointer-events-none disabled:opacity-50 mt-4"
-            >
-              {busy ? "Actualizando…" : "Actualizar Contraseña"}
-            </button>
-          </div>
-        </form>
+        <button type="button" onClick={handleLogout} style={styles.ghostBtn} disabled={loading}>
+          Cerrar sesión
+        </button>
       </div>
     </div>
   );
 }
+
+const styles: Record<string, React.CSSProperties> = {
+  root:         { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)", padding: 16 },
+  card:         { background: "#1e293b", border: "1px solid #334155", borderRadius: 16, padding: "36px 32px", width: "100%", maxWidth: 420, boxShadow: "0 25px 50px rgba(0,0,0,0.5)" },
+  title:        { margin: 0, fontSize: 22, fontWeight: 700, color: "#f1f5f9", letterSpacing: "-0.3px" },
+  subtitle:     { margin: "6px 0 0", fontSize: 14, color: "#94a3b8", lineHeight: 1.5 },
+  label:        { display: "block", fontSize: 13, fontWeight: 500, color: "#cbd5e1", marginBottom: 6, marginTop: 20 },
+  inputWrapper: { position: "relative", display: "flex", alignItems: "center" },
+  input:        { width: "100%", padding: "10px 44px 10px 14px", background: "#0f172a", border: "1px solid #334155", borderRadius: 8, color: "#f1f5f9", fontSize: 15, outline: "none", boxSizing: "border-box" },
+  eyeBtn:       { position: "absolute", right: 12, background: "none", border: "none", color: "#64748b", cursor: "pointer", padding: 0, lineHeight: 0 },
+  reqList:      { listStyle: "none", padding: 0, margin: "12px 0 0", display: "grid", gap: 4 },
+  reqItem:      { fontSize: 13, display: "flex", alignItems: "center", transition: "color 0.2s" },
+  errorBox:     { marginTop: 14, padding: "10px 14px", background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 8, color: "#fca5a5", fontSize: 13 },
+  primaryBtn:   { marginTop: 20, width: "100%", padding: "12px 0", background: "linear-gradient(135deg, #3b82f6, #2563eb)", color: "#fff", border: "none", borderRadius: 8, fontSize: 15, fontWeight: 600, transition: "opacity 0.2s", boxSizing: "border-box" },
+  ghostBtn:     { marginTop: 10, width: "100%", padding: "10px 0", background: "none", color: "#64748b", border: "1px solid #334155", borderRadius: 8, fontSize: 14, cursor: "pointer", boxSizing: "border-box" },
+};

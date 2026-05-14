@@ -1,144 +1,76 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getSessionPayload, signToken } from "@/lib/auth";
-import type { AuthPayload } from "@/lib/auth";
+import { verifyToken } from "@/lib/auth";
+import { getAuthPayload } from "@/lib/comunicaciones-auth";
 import bcrypt from "bcryptjs";
-import { validateNewPassword } from "@/lib/password-policy";
 import type { User } from "@/generated/prisma";
-import { NUCLEAR_EDUARDO_PLACEHOLDER_USER_ID } from "@/lib/nuclear-eduardo-fallback";
 
-/** Ruta canónica: `src/app/api/auth/change-password/route.ts` (fuera de grupos como `(auth)`). */
+interface StrengthResult { ok: boolean; error?: string }
 
-function clearBimosSession(response: NextResponse): void {
-  response.cookies.set({
-    name: "bimos_session",
-    value: "",
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 0,
-  });
+function validateStrength(pwd: string): StrengthResult {
+  if (pwd.length < 9)            return { ok: false, error: "Mínimo 9 caracteres." };
+  if (!/[A-Z]/.test(pwd))        return { ok: false, error: "Incluye al menos una mayúscula." };
+  if (!/[0-9]/.test(pwd))        return { ok: false, error: "Incluye al menos un número." };
+  if (!/[^A-Za-z0-9]/.test(pwd)) return { ok: false, error: "Incluye al menos un símbolo (@, #, !…)." };
+  return { ok: true };
 }
 
-/**
- * Resuelve fila User en Neon: 1) id del JWT, 2) nombre del token (insensible a mayúsculas),
- * 3) primer token del nombre (= "eduardo"/"Eduardo"), 4) si id es el de bypass de emergencia, contains "Eduardo".
- */
-async function resolveUserForPasswordChange(payload: AuthPayload): Promise<User | null> {
-  const byId = await prisma.user.findUnique({ where: { id: payload.id } });
+async function resolveUser(userId: string, nombreFromToken: string | undefined): Promise<User | null> {
+  const byId = await prisma.user.findUnique({ where: { id: userId } });
   if (byId) return byId;
 
-  const nombre = payload.nombre?.trim();
-  if (nombre) {
-    const byNombreToken = await prisma.user.findFirst({
-      where: { nombre: { equals: nombre, mode: "insensitive" } },
+  if (nombreFromToken?.trim()) {
+    const firstName = nombreFromToken.trim().split(/\s+/)[0];
+    const byName = await prisma.user.findFirst({
+      where: { nombre: { startsWith: firstName, mode: "insensitive" } },
+      orderBy: { createdAt: "asc" },
     });
-    if (byNombreToken) return byNombreToken;
-
-    const first = nombre.toLowerCase().split(/\s+/).filter(Boolean)[0];
-    if (first) {
-      const byFirst = await prisma.user.findFirst({
-        where: {
-          OR: [
-            { nombre: { equals: first, mode: "insensitive" } },
-            { nombre: { startsWith: first, mode: "insensitive" } },
-          ],
-        },
-        orderBy: { nombre: "asc" },
-      });
-      if (byFirst) return byFirst;
+    if (byName) {
+      console.log(`[change-password] ID sintético resuelto por nombre: "${byName.nombre}" (id=${byName.id})`);
+      return byName;
     }
   }
-
-  if (payload.id === NUCLEAR_EDUARDO_PLACEHOLDER_USER_ID) {
-    return prisma.user.findFirst({
-      where: {
-        OR: [
-          { nombre: { contains: "eduardo", mode: "insensitive" } },
-          { nombre: { contains: "Eduardo", mode: "insensitive" } },
-        ],
-      },
-      orderBy: { nombre: "asc" },
-    });
-  }
-
   return null;
 }
 
-/** POST /api/auth/change-password */
 export async function POST(request: Request) {
-  const jsonFail = (status: number, error: string) => {
-    const res = NextResponse.json({ success: false, error }, { status });
-    clearBimosSession(res);
-    return res;
-  };
+  let auth = await getAuthPayload();
+  let userId = auth?.id ?? null;
+  let nombreFromToken: string | undefined = (auth as Record<string, unknown> | null)?.nombre as string | undefined;
 
-  try {
-    const payload = await getSessionPayload();
-    if (!payload?.id) {
-      return jsonFail(401, "No autorizado");
+  if (!userId) {
+    const h = request.headers.get("authorization");
+    if (h?.startsWith("Bearer ")) {
+      auth = await verifyToken(h.slice(7).trim());
+      userId = auth?.id ?? null;
+      nombreFromToken = (auth as Record<string, unknown> | null)?.nombre as string | undefined;
     }
-
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-    const fromNew = body.newPassword;
-    const fromLegacy = body.password;
-    const newPassword =
-      typeof fromNew === "string" ? fromNew.trim() : typeof fromLegacy === "string" ? fromLegacy.trim() : "";
-
-    if (!newPassword || !validateNewPassword(newPassword)) {
-      return jsonFail(400, "Contraseña inválida");
-    }
-
-    let existing = await resolveUserForPasswordChange(payload);
-
-    if (!existing) {
-      return jsonFail(404, "Usuario no encontrado");
-    }
-
-    const hashed = bcrypt.hashSync(newPassword, 10);
-
-    const user = await prisma.user.update({
-      where: { id: existing.id },
-      data: {
-        password: hashed,
-        mustChangePassword: false,
-      },
-    });
-
-    const rawTipo = String(user.tipo ?? "")
-      .trim()
-      .toUpperCase();
-    const isAdmin = rawTipo === "ADMIN";
-
-    const token = await signToken(
-      {
-        id: user.id,
-        nombre: user.nombre,
-        tipo: isAdmin ? "ADMIN" : "USER",
-        permisos: user.permisos,
-        isSupremo: user.isSupremo,
-        canManageFolders: isAdmin ? true : user.canManageFolders,
-        mustChangePassword: false,
-      },
-      { rol: user.rol }
-    );
-
-    const response = NextResponse.json({ success: true });
-
-    response.cookies.set({
-      name: "bimos_session",
-      value: token,
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 7,
-    });
-
-    return response;
-  } catch (error) {
-    console.error("[change-password]", error);
-    return jsonFail(500, "Error interno");
   }
+
+  if (!userId) return NextResponse.json({ success: false, error: "No autorizado" }, { status: 401 });
+
+  let body: Record<string, unknown> = {};
+  try { body = await request.json(); }
+  catch { return NextResponse.json({ success: false, error: "JSON inválido" }, { status: 400 }); }
+
+  const newPassword = typeof body.newPassword === "string" ? body.newPassword.trim() : "";
+  if (!newPassword) return NextResponse.json({ success: false, error: "Se requiere newPassword." }, { status: 400 });
+
+  const strength = validateStrength(newPassword);
+  if (!strength.ok) return NextResponse.json({ success: false, error: strength.error }, { status: 422 });
+
+  const user = await resolveUser(userId, nombreFromToken);
+  if (!user) {
+    console.error(`[change-password] No se encontró usuario id="${userId}" nombre="${nombreFromToken}"`);
+    return NextResponse.json({ success: false, error: "Usuario no encontrado. Cierra sesión e intenta de nuevo." }, { status: 404 });
+  }
+
+  const hash = await bcrypt.hash(newPassword, 10);
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { password: hash, mustChangePassword: false },
+  });
+
+  console.log(`[change-password] Contraseña actualizada: "${user.nombre}" (id=${user.id})`);
+  return NextResponse.json({ success: true, message: "Contraseña actualizada correctamente." });
 }
