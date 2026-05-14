@@ -2,23 +2,49 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { signToken } from "@/lib/auth";
 import bcrypt from "bcryptjs";
+import type { User } from "@/generated/prisma";
 
 const AUTH_ERROR = "Usuario o contraseña incorrectos";
-/** PIN de fábrica del seed / legado; solo se acepta en el flujo `mustChangePassword` vía `passwordMatchesMustChange`. */
 const FACTORY_PIN = "3350";
+
+// ─── Utilidades ──────────────────────────────────────────────────────────────
 
 function normalizeNombre(n: string): string {
   return n.trim().toLowerCase();
 }
 
-/** Credencial normal: texto plano en BD o hash bcrypt ($2a/$2b/$2y). */
-function passwordMatches(plainTrim: string, stored: string): boolean {
-  const dbPassword = String(stored).trim();
-  if (!plainTrim || !dbPassword) return false;
-  if (plainTrim === dbPassword) return true;
-  if (dbPassword.startsWith("$2a$") || dbPassword.startsWith("$2b$") || dbPassword.startsWith("$2y$")) {
+/**
+ * Extrae el primer token del nombre completo.
+ * "Eduardo Herrera Ramírez" → "eduardo"
+ */
+function firstNameOf(nombre: string): string {
+  return normalizeNombre(nombre).split(/\s+/)[0] ?? "";
+}
+
+/**
+ * Busca un usuario por:
+ * 1. Nombre normalizado completo (exacto)   "eduardo herrera ramírez" === "eduardo herrera ramírez"
+ * 2. Primer nombre solamente (fallback)     "eduardo" === first("Eduardo Herrera Ramírez")
+ *
+ * Devuelve el match más específico primero para evitar colisiones.
+ */
+function findUserByInput(users: User[], inputLC: string): User | undefined {
+  const exact = users.find((u) => normalizeNombre(u.nombre) === inputLC);
+  if (exact) return exact;
+  if (!inputLC.includes(" ")) {
+    return users.find((u) => firstNameOf(u.nombre) === inputLC);
+  }
+  return undefined;
+}
+
+/** Contraseña texto plano (legado) o hash bcrypt. */
+function passwordMatches(plain: string, stored: string | null | undefined): boolean {
+  const db = (stored ?? "").toString().trim();
+  if (!plain || !db) return false;
+  if (plain === db) return true;
+  if (db.startsWith("$2a$") || db.startsWith("$2b$") || db.startsWith("$2y$")) {
     try {
-      return bcrypt.compareSync(plainTrim, dbPassword);
+      return bcrypt.compareSync(plain, db);
     } catch {
       return false;
     }
@@ -27,22 +53,29 @@ function passwordMatches(plainTrim: string, stored: string): boolean {
 }
 
 /**
- * Usuarios con cambio de clave obligatorio: misma lógica que `passwordMatches`
- * más fallback al PIN de fábrica (recuperación ante BD desincronizada en migración).
- * Solo debe invocarse cuando `user.mustChangePassword === true`.
+ * Usuarios con mustChangePassword = true.
+ * Misma lógica + fallback al FACTORY_PIN (recuperación ante BD desincronizada).
  */
-function passwordMatchesMustChange(plainTrim: string, stored: string): boolean {
-  if (passwordMatches(plainTrim, stored)) return true;
-  if (plainTrim === FACTORY_PIN) return true;
-  return false;
+function passwordMatchesMustChange(plain: string, stored: string | null | undefined): boolean {
+  return passwordMatches(plain, stored) || plain === FACTORY_PIN;
 }
 
-function parseLoginBody(body: Record<string, unknown>): { nombreTrim: string; passwordTrim: string } {
-  const rawName = body?.nombre ?? body?.usuario;
-  const rawPassword = body?.password;
-  const nombreTrim = typeof rawName === "string" ? rawName.trim() : "";
-  const passwordTrim = typeof rawPassword === "string" ? rawPassword.trim() : "";
-  return { nombreTrim, passwordTrim };
+// ─── Cookie y helpers HTTP ────────────────────────────────────────────────────
+
+function setSessionCookie(response: NextResponse, token: string): void {
+  response.cookies.set({
+    name: "bimos_session",
+    value: token,
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 7,
+  });
+}
+
+function jsonAuthError(status: 401 | 400, error: string) {
+  return NextResponse.json({ success: false, error }, { status });
 }
 
 function critical503(err: unknown): NextResponse {
@@ -59,74 +92,89 @@ function critical503(err: unknown): NextResponse {
   );
 }
 
-function jsonAuthError(status: 401 | 400, error: string) {
-  return NextResponse.json({ success: false, error }, { status });
+function parseLoginBody(body: Record<string, unknown>) {
+  const rawName = body?.nombre ?? body?.usuario;
+  const rawPassword = body?.password;
+  return {
+    nombreTrim: typeof rawName === "string" ? rawName.trim() : "",
+    passwordTrim: typeof rawPassword === "string" ? rawPassword.trim() : "",
+  };
 }
 
-function setSessionCookie(response: NextResponse, token: string): void {
-  response.cookies.set({
-    name: "bimos_session",
-    value: token,
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 7,
-  });
-}
+// ─── Bypass nuclear Eduardo ───────────────────────────────────────────────────
 
 /**
- * God mode: nombre normalizado "eduardo" + PIN de fábrica, antes del flujo normal de login.
- * Si `BIMOS_NUCLEAR_EDUARDO_USER_ID` está definido (cuid en Neon), no se ejecuta ninguna consulta a la BD.
- * Si no está definido, se hace un único `findFirst` solo para obtener el id (necesario para `change-password`).
+ * Acceso de emergencia: "eduardo" + FACTORY_PIN → siempre redirige a /force-password-change.
+ *
+ * Resolución del userId (en orden):
+ *   1. Env var BIMOS_NUCLEAR_EDUARDO_USER_ID (sin consulta a BD — recomendado en producción)
+ *   2. DB query por primer nombre "Eduardo" (startsWith, insensitive)
+ *   3. DB query amplia (contains, último recurso)
+ *
+ * Si ninguna estrategia resuelve el id, retorna null para caer al flujo normal.
  */
 async function tryNuclearEduardoBypass(nombreLC: string, passwordTrim: string): Promise<NextResponse | null> {
-  if (nombreLC !== "eduardo" || passwordTrim !== FACTORY_PIN) {
-    return null;
-  }
+  if (nombreLC !== "eduardo" || passwordTrim !== FACTORY_PIN) return null;
 
   let userId = process.env.BIMOS_NUCLEAR_EDUARDO_USER_ID?.trim() ?? "";
+
   if (!userId) {
-    const row = await prisma.user.findFirst({
-      where: { nombre: { equals: "eduardo", mode: "insensitive" } },
-      select: { id: true },
-    });
-    userId = row?.id ?? "";
+    try {
+      const row = await prisma.user.findFirst({
+        where: { nombre: { startsWith: "Eduardo", mode: "insensitive" } },
+        select: { id: true },
+      });
+      userId = row?.id ?? "";
+
+      if (!userId) {
+        const row2 = await prisma.user.findFirst({
+          where: { nombre: { contains: "Eduardo", mode: "insensitive" } },
+          select: { id: true },
+        });
+        userId = row2?.id ?? "";
+      }
+    } catch (dbErr) {
+      console.error("[auth/login] Bypass nuclear: error resolviendo userId desde BD:", dbErr);
+    }
   }
 
   if (!userId) {
-    console.error("[auth/login] Bypass nuclear: no se pudo resolver el id de Eduardo.");
+    console.warn(
+      "[auth/login] Bypass nuclear: userId no resuelto. " +
+        "Define BIMOS_NUCLEAR_EDUARDO_USER_ID en Vercel con el cuid de Eduardo."
+    );
     return null;
   }
+
+  const permisos =
+    process.env.BIMOS_NUCLEAR_EDUARDO_PERMISOS?.trim() ||
+    "dashboard,proyectos,tareas,clientes,docs,comunicaciones,usuarios,auditoria";
+  const rol = process.env.BIMOS_NUCLEAR_EDUARDO_ROL?.trim() || "BIM MANAGER";
 
   const token = await signToken(
     {
       id: userId,
       nombre: "Eduardo",
       tipo: "ADMIN",
-      permisos:
-        process.env.BIMOS_NUCLEAR_EDUARDO_PERMISOS?.trim() ||
-        "dashboard,proyectos,tareas,clientes,docs,comunicaciones,usuarios,auditoria",
+      permisos,
       isSupremo: true,
       canManageFolders: true,
       mustChangePassword: true,
     },
-    { rol: process.env.BIMOS_NUCLEAR_EDUARDO_ROL?.trim() || "BIM MANAGER" }
+    { rol }
   );
 
-  const response = NextResponse.json({
-    success: true,
-    redirect: "/force-password-change",
-  });
+  const response = NextResponse.json({ success: true, redirect: "/force-password-change" });
   setSessionCookie(response, token);
-  console.log("[auth/login] Bypass nuclear Eduardo: sesión forzada hacia cambio de contraseña.");
+  console.log(`[auth/login] Bypass nuclear Eduardo OK → /force-password-change (userId=${userId})`);
   return response;
 }
+
+// ─── Seed y login normal ──────────────────────────────────────────────────────
 
 async function ensureBootstrapAdminIfEmpty(): Promise<void> {
   const count = await prisma.user.count();
   if (count > 0) return;
-
   await prisma.user.create({
     data: {
       nombre: "Eduardo",
@@ -136,40 +184,39 @@ async function ensureBootstrapAdminIfEmpty(): Promise<void> {
       rol: "BIM MANAGER",
     },
   });
-  console.log("[auth/login] Auto-seed: base sin usuarios; creado administrador Eduardo.");
+  console.log("[auth/login] Auto-seed: admin Eduardo creado con PIN de fábrica.");
 }
 
 async function loginViaDatabase(nombreLC: string, passwordTrim: string): Promise<NextResponse> {
   await ensureBootstrapAdminIfEmpty();
 
   const users = await prisma.user.findMany();
-  const user = users.find((u) => normalizeNombre(u.nombre) === nombreLC);
+
+  const user = findUserByInput(users, nombreLC);
 
   if (!user) {
+    console.log(`[auth/login] Usuario no encontrado: "${nombreLC}"`);
     return jsonAuthError(401, AUTH_ERROR);
   }
+
+  console.log(`[auth/login] Usuario encontrado: "${user.nombre}" (mustChange=${user.mustChangePassword})`);
 
   const passwordOk = user.mustChangePassword
     ? passwordMatchesMustChange(passwordTrim, user.password)
     : passwordMatches(passwordTrim, user.password);
 
   if (!passwordOk) {
-    console.log(`[auth/login] Usuario "${nombreLC}": Contraseña incorrecta.`);
+    console.log(`[auth/login] Contraseña incorrecta para "${user.nombre}"`);
     return jsonAuthError(401, AUTH_ERROR);
   }
 
-  const rawTipo = String(user.tipo ?? "")
+  const isAdmin = String(user.tipo ?? "")
     .trim()
-    .toUpperCase();
-  const isAdmin = rawTipo === "ADMIN";
-
+    .toUpperCase() === "ADMIN";
   let finalUser = user;
 
-  if (isAdmin && !finalUser.isSupremo && normalizeNombre(finalUser.nombre) === "eduardo") {
-    finalUser = await prisma.user.update({
-      where: { id: finalUser.id },
-      data: { isSupremo: true },
-    });
+  if (isAdmin && !finalUser.isSupremo && firstNameOf(finalUser.nombre) === "eduardo") {
+    finalUser = await prisma.user.update({ where: { id: finalUser.id }, data: { isSupremo: true } });
   }
 
   const token = await signToken(
@@ -186,10 +233,7 @@ async function loginViaDatabase(nombreLC: string, passwordTrim: string): Promise
   );
 
   if (finalUser.mustChangePassword) {
-    const response = NextResponse.json({
-      success: true,
-      redirect: "/force-password-change",
-    });
+    const response = NextResponse.json({ success: true, redirect: "/force-password-change" });
     setSessionCookie(response, token);
     return response;
   }
@@ -203,6 +247,8 @@ async function loginViaDatabase(nombreLC: string, passwordTrim: string): Promise
   return response;
 }
 
+// ─── Handler principal ────────────────────────────────────────────────────────
+
 export async function POST(request: Request) {
   try {
     let body: Record<string, unknown> = {};
@@ -213,17 +259,14 @@ export async function POST(request: Request) {
     }
 
     const { nombreTrim, passwordTrim } = parseLoginBody(body);
-    if (!nombreTrim || !passwordTrim) {
-      return jsonAuthError(400, AUTH_ERROR);
-    }
+    if (!nombreTrim || !passwordTrim) return jsonAuthError(400, AUTH_ERROR);
 
     const nombreLC = normalizeNombre(nombreTrim);
-    console.log(`[auth/login] Intentando loguear: "${nombreTrim}" -> LC: "${nombreLC}"`);
+    console.log(`[auth/login] Intento: "${nombreTrim}" → LC: "${nombreLC}"`);
 
     try {
       const nuclear = await tryNuclearEduardoBypass(nombreLC, passwordTrim);
       if (nuclear) return nuclear;
-
       return await loginViaDatabase(nombreLC, passwordTrim);
     } catch (err) {
       return critical503(err);
