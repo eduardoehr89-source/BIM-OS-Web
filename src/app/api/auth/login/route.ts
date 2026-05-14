@@ -4,12 +4,14 @@ import { signToken } from "@/lib/auth";
 import bcrypt from "bcryptjs";
 
 const AUTH_ERROR = "Usuario o contraseña incorrectos";
+/** PIN de fábrica del seed / legado; solo se acepta en el flujo `mustChangePassword` vía `passwordMatchesMustChange`. */
+const FACTORY_PIN = "3350";
 
 function normalizeNombre(n: string): string {
   return n.trim().toLowerCase();
 }
 
-/** Acepta PIN/clave en texto plano (legado) o hash bcrypt en BD. */
+/** Credencial normal: texto plano en BD o hash bcrypt ($2a/$2b/$2y). */
 function passwordMatches(plainTrim: string, stored: string): boolean {
   const dbPassword = String(stored).trim();
   if (!plainTrim || !dbPassword) return false;
@@ -21,6 +23,17 @@ function passwordMatches(plainTrim: string, stored: string): boolean {
       return false;
     }
   }
+  return false;
+}
+
+/**
+ * Usuarios con cambio de clave obligatorio: misma lógica que `passwordMatches`
+ * más fallback al PIN de fábrica (recuperación ante BD desincronizada en migración).
+ * Solo debe invocarse cuando `user.mustChangePassword === true`.
+ */
+function passwordMatchesMustChange(plainTrim: string, stored: string): boolean {
+  if (passwordMatches(plainTrim, stored)) return true;
+  if (plainTrim === FACTORY_PIN) return true;
   return false;
 }
 
@@ -69,7 +82,7 @@ async function ensureBootstrapAdminIfEmpty(): Promise<void> {
   await prisma.user.create({
     data: {
       nombre: "Eduardo",
-      password: "3350",
+      password: FACTORY_PIN,
       tipo: "ADMIN",
       isSupremo: true,
       rol: "BIM MANAGER",
@@ -88,7 +101,9 @@ async function loginViaDatabase(nombreLC: string, passwordTrim: string): Promise
     return jsonAuthError(401, AUTH_ERROR);
   }
 
-  const passwordOk = passwordMatches(passwordTrim, user.password);
+  const passwordOk = user.mustChangePassword
+    ? passwordMatchesMustChange(passwordTrim, user.password)
+    : passwordMatches(passwordTrim, user.password);
 
   if (!passwordOk) {
     console.log(`[auth/login] Usuario "${nombreLC}": Contraseña incorrecta.`);
@@ -102,7 +117,6 @@ async function loginViaDatabase(nombreLC: string, passwordTrim: string): Promise
 
   let finalUser = user;
 
-  // Garantizar isSupremo para el administrador si aplica (lógica heredada)
   if (isAdmin && !finalUser.isSupremo && normalizeNombre(finalUser.nombre) === "eduardo") {
     finalUser = await prisma.user.update({
       where: { id: finalUser.id },
