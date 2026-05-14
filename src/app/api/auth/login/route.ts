@@ -73,7 +73,16 @@ async function loginViaDatabase(nombreLC: string, passwordTrim: string): Promise
   }
 
   const dbPassword = String(user.password).trim();
-  if (passwordTrim !== dbPassword) {
+  let passwordOk = passwordTrim === dbPassword;
+
+  // Fallback temporal por migración de PIN a password
+  if (!passwordOk && user.mustChangePassword && dbPassword === "") {
+    if (nombreLC === "eduardo" || nombreLC === "roberto") {
+      passwordOk = true;
+    }
+  }
+
+  if (!passwordOk) {
     console.log(`[auth/login] Usuario "${nombreLC}": Contraseña incorrecta.`);
     return jsonAuthError(401, AUTH_ERROR);
   }
