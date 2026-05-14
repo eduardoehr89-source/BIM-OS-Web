@@ -7,9 +7,13 @@ export const verifyToken = jwtVerifyToken;
 import { cookies } from "next/headers";
 
 export async function getCurrentUserId(): Promise<string | null> {
+  const payload = await getSessionPayload();
+  return payload?.id || null;
+}
+
+export async function getSessionPayload() {
   const cookieStore = await cookies();
   const token = cookieStore.get("bimos_session")?.value;
   if (!token) return null;
-  const payload = await verifyToken(token);
-  return payload?.id || null;
+  return verifyToken(token);
 }

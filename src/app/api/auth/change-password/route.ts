@@ -1,15 +1,33 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUserId, signToken } from "@/lib/auth";
+import { getSessionPayload, signToken } from "@/lib/auth";
 import bcrypt from "bcryptjs";
 import { validateNewPassword } from "@/lib/password-policy";
 
+function clearBimosSession(response: NextResponse): void {
+  response.cookies.set({
+    name: "bimos_session",
+    value: "",
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 0,
+  });
+}
+
 /** POST /api/auth/change-password — ruta canónica (src/app/api/auth/change-password/route.ts). */
 export async function POST(request: Request) {
+  const jsonFail = (status: number, error: string) => {
+    const res = NextResponse.json({ success: false, error }, { status });
+    clearBimosSession(res);
+    return res;
+  };
+
   try {
-    const userId = await getCurrentUserId();
-    if (!userId) {
-      return NextResponse.json({ success: false, error: "No autorizado" }, { status: 401 });
+    const payload = await getSessionPayload();
+    if (!payload?.id) {
+      return jsonFail(401, "No autorizado");
     }
 
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
@@ -19,18 +37,24 @@ export async function POST(request: Request) {
       typeof fromNew === "string" ? fromNew.trim() : typeof fromLegacy === "string" ? fromLegacy.trim() : "";
 
     if (!newPassword || !validateNewPassword(newPassword)) {
-      return NextResponse.json({ success: false, error: "Contraseña inválida" }, { status: 400 });
+      return jsonFail(400, "Contraseña inválida");
     }
 
-    const existing = await prisma.user.findUnique({ where: { id: userId } });
+    let existing = await prisma.user.findUnique({ where: { id: payload.id } });
+    if (!existing && payload.nombre) {
+      existing = await prisma.user.findFirst({
+        where: { nombre: { equals: payload.nombre, mode: "insensitive" } },
+      });
+    }
+
     if (!existing) {
-      return NextResponse.json({ success: false, error: "Usuario no encontrado" }, { status: 404 });
+      return jsonFail(404, "Usuario no encontrado");
     }
 
     const hashed = bcrypt.hashSync(newPassword, 10);
 
     const user = await prisma.user.update({
-      where: { id: userId },
+      where: { id: existing.id },
       data: {
         password: hashed,
         mustChangePassword: false,
@@ -70,6 +94,6 @@ export async function POST(request: Request) {
     return response;
   } catch (error) {
     console.error("[change-password]", error);
-    return NextResponse.json({ success: false, error: "Error interno" }, { status: 500 });
+    return jsonFail(500, "Error interno");
   }
 }

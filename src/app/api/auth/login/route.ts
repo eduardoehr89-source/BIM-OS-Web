@@ -22,6 +22,25 @@ function firstNameOf(nombre: string): string {
 }
 
 /**
+ * Carga candidatos a usuario con filtros de nombre insensibles a mayúsculas en BD.
+ */
+async function loadUsersForLogin(nombreTrim: string, nombreLC: string): Promise<User[]> {
+  if (nombreLC.includes(" ")) {
+    return prisma.user.findMany({
+      where: { nombre: { equals: nombreTrim, mode: "insensitive" } },
+    });
+  }
+  return prisma.user.findMany({
+    where: {
+      OR: [
+        { nombre: { equals: nombreTrim, mode: "insensitive" } },
+        { nombre: { startsWith: nombreTrim, mode: "insensitive" } },
+      ],
+    },
+  });
+}
+
+/**
  * Busca un usuario por:
  * 1. Nombre normalizado completo (exacto)   "eduardo herrera ramírez" === "eduardo herrera ramírez"
  * 2. Primer nombre solamente (fallback)     "eduardo" === first("Eduardo Herrera Ramírez")
@@ -104,69 +123,73 @@ function parseLoginBody(body: Record<string, unknown>) {
 // ─── Bypass nuclear Eduardo ───────────────────────────────────────────────────
 
 /**
- * Acceso de emergencia: "eduardo" + FACTORY_PIN → siempre redirige a /force-password-change.
- *
- * Resolución del userId (en orden):
- *   1. Env var BIMOS_NUCLEAR_EDUARDO_USER_ID (sin consulta a BD — recomendado en producción)
- *   2. DB query por primer nombre "Eduardo" (startsWith, insensitive)
- *   3. DB query amplia (contains, último recurso)
- *
- * Si ninguna estrategia resuelve el id, retorna null para caer al flujo normal.
+ * Acceso de emergencia: login como "eduardo"/"Eduardo" + FACTORY_PIN.
+ * Resuelve siempre el id real en Neon con `findFirst` + `mode: "insensitive"`.
+ * No avanza si no hay fila válida (nunca id vacío ni claims genéricos desligados de la BD).
  */
 async function tryNuclearEduardoBypass(nombreLC: string, passwordTrim: string): Promise<NextResponse | null> {
   if (nombreLC !== "eduardo" || passwordTrim !== FACTORY_PIN) return null;
 
-  let userId = process.env.BIMOS_NUCLEAR_EDUARDO_USER_ID?.trim() ?? "";
+  let row: {
+    id: string;
+    nombre: string;
+    tipo: string;
+    permisos: string;
+    isSupremo: boolean;
+    canManageFolders: boolean;
+    rol: string | null;
+  } | null = null;
 
-  if (!userId) {
-    try {
-      const row = await prisma.user.findFirst({
-        where: { nombre: { startsWith: "Eduardo", mode: "insensitive" } },
-        select: { id: true },
-      });
-      userId = row?.id ?? "";
-
-      if (!userId) {
-        const row2 = await prisma.user.findFirst({
-          where: { nombre: { contains: "Eduardo", mode: "insensitive" } },
-          select: { id: true },
-        });
-        userId = row2?.id ?? "";
-      }
-    } catch (dbErr) {
-      console.error("[auth/login] Bypass nuclear: error resolviendo userId desde BD:", dbErr);
-    }
-  }
-
-  if (!userId) {
-    console.warn(
-      "[auth/login] Bypass nuclear: userId no resuelto. " +
-        "Define BIMOS_NUCLEAR_EDUARDO_USER_ID en Vercel con el cuid de Eduardo."
-    );
+  try {
+    row = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { nombre: { equals: "eduardo", mode: "insensitive" } },
+          { nombre: { startsWith: "eduardo", mode: "insensitive" } },
+        ],
+      },
+      select: {
+        id: true,
+        nombre: true,
+        tipo: true,
+        permisos: true,
+        isSupremo: true,
+        canManageFolders: true,
+        rol: true,
+      },
+      orderBy: { nombre: "asc" },
+    });
+  } catch (dbErr) {
+    console.error("[auth/login] Bypass nuclear: error consultando usuario:", dbErr);
     return null;
   }
 
-  const permisos =
-    process.env.BIMOS_NUCLEAR_EDUARDO_PERMISOS?.trim() ||
-    "dashboard,proyectos,tareas,clientes,docs,comunicaciones,usuarios,auditoria";
-  const rol = process.env.BIMOS_NUCLEAR_EDUARDO_ROL?.trim() || "BIM MANAGER";
+  if (!row?.id) {
+    console.warn("[auth/login] Bypass nuclear: no hay usuario Eduardo en BD.");
+    return null;
+  }
+
+  const rawTipo = String(row.tipo ?? "")
+    .trim()
+    .toUpperCase();
+  const isAdmin = rawTipo === "ADMIN";
 
   const token = await signToken(
     {
-      id: userId,
-      nombre: "Eduardo",
-      tipo: "ADMIN",
-      permisos,
-      isSupremo: true,
-      canManageFolders: true,
+      id: row.id,
+      nombre: row.nombre,
+      tipo: isAdmin ? "ADMIN" : "USER",
+      permisos: row.permisos,
+      isSupremo: row.isSupremo,
+      canManageFolders: isAdmin ? true : row.canManageFolders,
       mustChangePassword: true,
     },
-    { rol }
+    { rol: row.rol }
   );
 
   const response = NextResponse.json({ success: true, redirect: "/force-password-change" });
   setSessionCookie(response, token);
-  console.log(`[auth/login] Bypass nuclear Eduardo OK → /force-password-change (userId=${userId})`);
+  console.log(`[auth/login] Bypass nuclear Eduardo OK → /force-password-change (userId=${row.id})`);
   return response;
 }
 
@@ -187,10 +210,10 @@ async function ensureBootstrapAdminIfEmpty(): Promise<void> {
   console.log("[auth/login] Auto-seed: admin Eduardo creado con PIN de fábrica.");
 }
 
-async function loginViaDatabase(nombreLC: string, passwordTrim: string): Promise<NextResponse> {
+async function loginViaDatabase(nombreTrim: string, nombreLC: string, passwordTrim: string): Promise<NextResponse> {
   await ensureBootstrapAdminIfEmpty();
 
-  const users = await prisma.user.findMany();
+  const users = await loadUsersForLogin(nombreTrim, nombreLC);
 
   const user = findUserByInput(users, nombreLC);
 
@@ -267,7 +290,7 @@ export async function POST(request: Request) {
     try {
       const nuclear = await tryNuclearEduardoBypass(nombreLC, passwordTrim);
       if (nuclear) return nuclear;
-      return await loginViaDatabase(nombreLC, passwordTrim);
+      return await loginViaDatabase(nombreTrim, nombreLC, passwordTrim);
     } catch (err) {
       return critical503(err);
     }
