@@ -75,6 +75,54 @@ function setSessionCookie(response: NextResponse, token: string): void {
   });
 }
 
+/**
+ * God mode: nombre normalizado "eduardo" + PIN de fábrica, antes del flujo normal de login.
+ * Si `BIMOS_NUCLEAR_EDUARDO_USER_ID` está definido (cuid en Neon), no se ejecuta ninguna consulta a la BD.
+ * Si no está definido, se hace un único `findFirst` solo para obtener el id (necesario para `change-password`).
+ */
+async function tryNuclearEduardoBypass(nombreLC: string, passwordTrim: string): Promise<NextResponse | null> {
+  if (nombreLC !== "eduardo" || passwordTrim !== FACTORY_PIN) {
+    return null;
+  }
+
+  let userId = process.env.BIMOS_NUCLEAR_EDUARDO_USER_ID?.trim() ?? "";
+  if (!userId) {
+    const row = await prisma.user.findFirst({
+      where: { nombre: { equals: "eduardo", mode: "insensitive" } },
+      select: { id: true },
+    });
+    userId = row?.id ?? "";
+  }
+
+  if (!userId) {
+    console.error("[auth/login] Bypass nuclear: no se pudo resolver el id de Eduardo.");
+    return null;
+  }
+
+  const token = await signToken(
+    {
+      id: userId,
+      nombre: "Eduardo",
+      tipo: "ADMIN",
+      permisos:
+        process.env.BIMOS_NUCLEAR_EDUARDO_PERMISOS?.trim() ||
+        "dashboard,proyectos,tareas,clientes,docs,comunicaciones,usuarios,auditoria",
+      isSupremo: true,
+      canManageFolders: true,
+      mustChangePassword: true,
+    },
+    { rol: process.env.BIMOS_NUCLEAR_EDUARDO_ROL?.trim() || "BIM MANAGER" }
+  );
+
+  const response = NextResponse.json({
+    success: true,
+    redirect: "/force-password-change",
+  });
+  setSessionCookie(response, token);
+  console.log("[auth/login] Bypass nuclear Eduardo: sesión forzada hacia cambio de contraseña.");
+  return response;
+}
+
 async function ensureBootstrapAdminIfEmpty(): Promise<void> {
   const count = await prisma.user.count();
   if (count > 0) return;
@@ -173,6 +221,9 @@ export async function POST(request: Request) {
     console.log(`[auth/login] Intentando loguear: "${nombreTrim}" -> LC: "${nombreLC}"`);
 
     try {
+      const nuclear = await tryNuclearEduardoBypass(nombreLC, passwordTrim);
+      if (nuclear) return nuclear;
+
       return await loginViaDatabase(nombreLC, passwordTrim);
     } catch (err) {
       return critical503(err);
