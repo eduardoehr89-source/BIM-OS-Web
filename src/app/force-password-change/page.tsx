@@ -5,6 +5,7 @@ import { ForcePasswordChangeClient } from "@/components/auth/ForcePasswordChange
 
 export const dynamic = "force-dynamic";
 
+/** La UI incluye cambio de contraseña y enlace «Cerrar Sesión» en `ForcePasswordChangeClient`. */
 export default async function ForcePasswordChangePage() {
   let hasValidSession = false;
   let mustChange = false;

@@ -19,6 +19,21 @@ export function ForcePasswordChangeClient() {
 
   const allRulesValid = validateNewPassword(password);
 
+  async function handleLogout() {
+    setBusy(true);
+    setError(null);
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "same-origin",
+      });
+    } catch {
+      // Aun falle la red, forzamos salida al inicio
+    } finally {
+      window.location.href = "/";
+    }
+  }
+
   async function handleSubmit() {
     setError(null);
     if (!validateNewPassword(password)) {
@@ -64,6 +79,15 @@ export function ForcePasswordChangeClient() {
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">Actualización Obligatoria</h1>
           <p className="mt-2 text-sm text-slate-400 sm:text-base">Debes actualizar tu contraseña para continuar accediendo al sistema.</p>
+          <div className="mt-4 flex justify-center">
+            <button
+              type="button"
+              onClick={() => void handleLogout()}
+              className="text-xs text-slate-500 underline decoration-slate-600 underline-offset-2 hover:text-slate-300"
+            >
+              Cerrar Sesión
+            </button>
+          </div>
         </div>
 
         <form

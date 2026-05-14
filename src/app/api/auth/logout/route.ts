@@ -1,8 +1,15 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
 
 export async function POST() {
-  const cookieStore = await cookies();
-  cookieStore.delete("bimos_session");
-  return NextResponse.json({ success: true });
+  const res = NextResponse.json({ success: true });
+  res.cookies.set({
+    name: "bimos_session",
+    value: "",
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 0,
+  });
+  return res;
 }
