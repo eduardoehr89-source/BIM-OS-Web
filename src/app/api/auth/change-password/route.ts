@@ -4,6 +4,7 @@ import { getCurrentUserId, signToken } from "@/lib/auth";
 import bcrypt from "bcryptjs";
 import { validateNewPassword } from "@/lib/password-policy";
 
+/** POST /api/auth/change-password — ruta canónica (src/app/api/auth/change-password/route.ts). */
 export async function POST(request: Request) {
   try {
     const userId = await getCurrentUserId();
@@ -11,10 +12,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: "No autorizado" }, { status: 401 });
     }
 
-    const body = await request.json().catch(() => ({}));
-    const newPassword = body.password;
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const fromNew = body.newPassword;
+    const fromLegacy = body.password;
+    const newPassword =
+      typeof fromNew === "string" ? fromNew.trim() : typeof fromLegacy === "string" ? fromLegacy.trim() : "";
 
-    if (!newPassword || typeof newPassword !== "string" || !validateNewPassword(newPassword)) {
+    if (!newPassword || !validateNewPassword(newPassword)) {
       return NextResponse.json({ success: false, error: "Contraseña inválida" }, { status: 400 });
     }
 

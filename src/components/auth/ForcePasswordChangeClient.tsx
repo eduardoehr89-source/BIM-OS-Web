@@ -36,7 +36,7 @@ export function ForcePasswordChangeClient() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ newPassword: password }),
       });
 
       if (!res.ok) {
