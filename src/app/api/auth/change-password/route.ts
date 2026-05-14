@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { verifyToken } from "@/lib/auth";
+import { verifyToken, signToken } from "@/lib/auth";
 import { getAuthPayload } from "@/lib/comunicaciones-auth";
 import bcrypt from "bcryptjs";
 import type { User } from "@/generated/prisma";
@@ -76,6 +76,30 @@ export async function POST(request: Request) {
     data: { password: hash, mustChangePassword: false },
   });
 
+  const newToken = await signToken(
+    {
+      id: user.id,
+      nombre: user.nombre,
+      tipo: String(user.tipo ?? "USER").trim().toUpperCase() === "ADMIN" ? "ADMIN" : "USER",
+      permisos: user.permisos,
+      isSupremo: user.isSupremo,
+      canManageFolders: user.canManageFolders,
+      mustChangePassword: false,
+    },
+    { rol: user.rol }
+  );
+
+  const finalResponse = NextResponse.json({ success: true, message: "Contraseña actualizada correctamente." });
+  finalResponse.cookies.set({
+    name: "bimos_session",
+    value: newToken,
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 7,
+  });
+
   console.log(`[change-password] Contraseña actualizada: "${user.nombre}" (id=${user.id})`);
-  return NextResponse.json({ success: true, message: "Contraseña actualizada correctamente." });
+  return finalResponse;
 }
