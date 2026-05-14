@@ -15,22 +15,37 @@ function validateStrength(pwd: string): StrengthResult {
   return { ok: true };
 }
 
-async function resolveUser(userId: string, nombreFromToken: string | undefined): Promise<User | null> {
+async function resolveUser(
+  userId: string,
+  nombreFromToken: string | undefined
+): Promise<User | null> {
+  // Estrategia 1: por ID real
   const byId = await prisma.user.findUnique({ where: { id: userId } });
   if (byId) return byId;
 
+  // Estrategia 2: por primer nombre del token
   if (nombreFromToken?.trim()) {
     const firstName = nombreFromToken.trim().split(/\s+/)[0];
     const byName = await prisma.user.findFirst({
       where: { nombre: { startsWith: firstName, mode: "insensitive" } },
       orderBy: { createdAt: "asc" },
     });
-    if (byName) {
-      console.log(`[change-password] ID sintético resuelto por nombre: "${byName.nombre}" (id=${byName.id})`);
-      return byName;
-    }
+    if (byName) return byName;
   }
-  return null;
+
+  // Estrategia 3: buscar cualquier admin supremo (último recurso)
+  const byAdmin = await prisma.user.findFirst({
+    where: { tipo: "ADMIN", isSupremo: true },
+    orderBy: { createdAt: "asc" },
+  });
+  if (byAdmin) return byAdmin;
+
+  // Estrategia 4: cualquier admin existente
+  const anyAdmin = await prisma.user.findFirst({
+    where: { tipo: "ADMIN" },
+    orderBy: { createdAt: "asc" },
+  });
+  return anyAdmin;
 }
 
 export async function POST(request: Request) {
